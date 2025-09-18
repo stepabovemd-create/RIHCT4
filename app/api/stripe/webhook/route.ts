@@ -24,21 +24,16 @@ export async function POST(req: NextRequest) {
       process.env.STRIPE_WEBHOOK_SECRET as string
     );
 
-    // For now, just log what arrives (we’ll add RemoteLock/email next)
     console.log('✅ webhook received:', event.type);
 
     switch (event.type) {
       case 'invoice.payment_succeeded': {
-        // const invoice = event.data.object as Stripe.Invoice;
-        // TODO: look up tenant by customer id, create RemoteLock code, email
         break;
       }
       case 'invoice.payment_failed': {
-        // TODO: notify, mark past_due
         break;
       }
       case 'customer.subscription.deleted': {
-        // TODO: revoke code after grace
         break;
       }
     }
