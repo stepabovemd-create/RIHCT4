@@ -23,20 +23,3 @@ export default function Home() {
     </main>
   );
 }
-Click Commit.
-
-Add file → Create new file
-File name: app/layout.tsx
-Contents:
-
-tsx
-Copy code
-import './globals.css';
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
-}
