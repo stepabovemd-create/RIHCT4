@@ -1,5 +1,6 @@
 // app/api/webhook/route.ts
-// Next.js App Router + Stripe webhook + Postmark email (no forced rerouting)
+// Next.js App Router + Stripe webhook + Postmark email
+// Handles ONLY `invoice.payment_succeeded`
 
 export const runtime = 'nodejs';
 
@@ -7,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import Stripe from 'stripe';
 
-// helpers
+// --- helpers ---
 function extractEmail(addr?: string | null) {
   if (!addr) return '';
   const m = addr.match(/<([^>]+)>/);
@@ -29,6 +30,7 @@ async function sendEmailViaPostmark({
 }) {
   if (!token) {
     console.log('📧 Skipped email: POSTMARK_TOKEN missing');
+    return;
   }
   const from = extractEmail(fromRaw);
   const to = extractEmail(toRaw || '');
@@ -36,16 +38,17 @@ async function sendEmailViaPostmark({
     console.log('📧 Skipped email: missing From/To', { from, to });
     return;
   }
+
   console.log('📧 From:', fromRaw, '| To:', to);
 
   const res = await fetch('https://api.postmarkapp.com/email', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Postmark-Server-Token': token as string,
+      'X-Postmark-Server-Token': token,
     },
     body: JSON.stringify({
-      From: fromRaw, // allow "Relax Inn <no-reply@yourdomain>"
+      From: fromRaw, // supports "Relax Inn <no-reply@yourdomain>"
       To: to,
       Subject: subject,
       TextBody: text,
@@ -58,7 +61,7 @@ async function sendEmailViaPostmark({
   console.log('📧 Postmark response:', res.status, body);
 }
 
-// GET: quick status
+// --- GET: quick status ---
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -70,7 +73,7 @@ export async function GET() {
   });
 }
 
-// POST: Stripe webhook
+// --- POST: Stripe webhook ---
 export async function POST(req: NextRequest) {
   const sig = headers().get('stripe-signature');
   const rawBody = Buffer.from(await req.arrayBuffer());
@@ -87,14 +90,10 @@ export async function POST(req: NextRequest) {
     );
     console.log('✅ Stripe event:', event.type);
 
-    const fromRaw = process.env.SENDER_EMAIL || '';
-    const pmToken = process.env.POSTMARK_TOKEN;
-
-    // 1) Primary for subscriptions
     if (event.type === 'invoice.payment_succeeded') {
       const invoice = event.data.object as Stripe.Invoice;
 
-      // email
+      // Get customer email
       let email = invoice.customer_email || undefined;
       const customerId =
         typeof invoice.customer === 'string'
@@ -109,7 +108,7 @@ export async function POST(req: NextRequest) {
         } catch {}
       }
 
-      // metadata for name
+      // Get name from subscription metadata
       let first = '';
       let last = '';
       try {
@@ -121,16 +120,16 @@ export async function POST(req: NextRequest) {
         }
       } catch {}
 
-      // interval
+      // Weekly vs monthly
       const line = invoice.lines?.data?.[0];
       const interval = line?.price?.recurring?.interval; // 'week' | 'month'
 
-      // demo code + window
+      // Demo code + validity window
       const code = String(Math.floor(100000 + Math.random() * 900000));
-      const start = new Date(); start.setHours(15, 0, 0, 0);
+      const start = new Date(); start.setHours(15, 0, 0, 0); // 3pm
       const end = new Date(start);
       end.setDate(end.getDate() + (interval === 'month' ? 30 : 7));
-      end.setHours(11, 0, 0, 0);
+      end.setHours(11, 0, 0, 0); // 11am
 
       const greeting = [first, last].filter(Boolean).join(' ');
       const text = [
@@ -145,65 +144,11 @@ export async function POST(req: NextRequest) {
       ].join('\n');
 
       await sendEmailViaPostmark({
-        fromRaw,
-        toRaw: email, // only send to guest email (no fallback)
+        fromRaw: process.env.SENDER_EMAIL || '',
+        toRaw: email, // send to guest email (no fallback)
         subject: 'Your Relax Inn door code',
         text,
-        token: pmToken,
-      });
-    }
-
-    // 2) Fallback path (sometimes arrives sooner)
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
-
-      let email = session.customer_details?.email || undefined;
-      const customerId = typeof session.customer === 'string' ? session.customer : undefined;
-      if (!email && customerId) {
-        try {
-          const customer = await stripe.customers.retrieve(customerId);
-          if (typeof customer === 'object' && customer && 'email' in customer) {
-            email = (customer as Stripe.Customer).email || undefined;
-          }
-        } catch {}
-      }
-
-      const first = (session.metadata?.first as string) || '';
-      const last  = (session.metadata?.last as string)  || '';
-
-      // try to detect interval
-      let interval: 'week' | 'month' | 'unknown' = 'unknown';
-      try {
-        const s = await stripe.checkout.sessions.retrieve(session.id, { expand: ['line_items.data.price'] });
-        const li = s.line_items?.data?.[0];
-        const rec = (li?.price as Stripe.Price | undefined)?.recurring;
-        interval = (rec?.interval as 'week' | 'month' | undefined) || 'unknown';
-      } catch {}
-
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      const start = new Date(); start.setHours(15, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + (interval === 'month' ? 30 : 7));
-      end.setHours(11, 0, 0, 0);
-
-      const greeting = [first, last].filter(Boolean).join(' ');
-      const text = [
-        (greeting ? `Hi ${greeting}` : 'Hi'),
-        '',
-        `Thanks for your ${interval === 'month' ? 'monthly' : 'weekly'} payment at Relax Inn.`,
-        `Your door code is: ${code}`,
-        `Valid ${start.toLocaleString()} → ${end.toLocaleString()}.`,
-        '',
-        `If you need help, call the front desk.`,
-        `— Relax Inn Hartford City`,
-      ].join('\n');
-
-      await sendEmailViaPostmark({
-        fromRaw,
-        toRaw: email, // only send to guest email (no fallback)
-        subject: 'Your Relax Inn door code',
-        text,
-        token: pmToken,
+        token: process.env.POSTMARK_TOKEN,
       });
     }
 
