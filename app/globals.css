@@ -1,2 +1,39 @@
-/* global styles */
-html, body { margin: 0; padding: 0; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brand tokens */
+:root {
+  --brand: #1d4ed8;      /* blue-600 */
+  --brand-700: #1e40af;  /* blue-700 */
+}
+
+/* Base */
+html, body { @apply bg-white text-slate-900 antialiased; }
+a { @apply underline-offset-2; }
+
+/* Reusable UI primitives */
+.btn {
+  @apply inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold transition;
+}
+.btn-primary {
+  @apply text-white border border-blue-600 bg-[color:var(--brand)] hover:bg-[color:var(--brand-700)];
+}
+.btn-outline {
+  @apply border border-slate-300 text-slate-700 hover:bg-slate-50;
+}
+.input {
+  @apply w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200;
+}
+.select {
+  @apply w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200;
+}
+.card {
+  @apply rounded-2xl ring-1 ring-slate-200 bg-white shadow-sm;
+}
+.badge {
+  @apply inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-800;
+}
+.container {
+  @apply mx-auto max-w-6xl px-4;
+}
