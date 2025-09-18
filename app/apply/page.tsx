@@ -20,7 +20,7 @@ export default function Apply() {
         body: JSON.stringify({ plan }),
       })
       const { url } = await r.json()
-      window.location.href = url // Stripe-hosted Checkout (test mode)
+      window.location.href = url
     } finally {
       setLoading(false)
     }
@@ -28,7 +28,7 @@ export default function Apply() {
 
   return (
     <main style={{padding:'2rem', fontFamily:'system-ui'}}>
-      <h2>Apply (TEST MODE)</h2>
+      <h2>Apply (TEST MODE) — v2</h2>
       <div style={{marginTop:12}}>
         <label>Plan:&nbsp;
           <select value={plan} onChange={e=>setPlan(e.target.value)}>
