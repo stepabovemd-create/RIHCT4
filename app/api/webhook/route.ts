@@ -1,6 +1,6 @@
 // app/api/webhook/route.ts
 // NEXT.JS (App Router) + Stripe webhook handler + Postmark email
-// Auto-reroutes email to same-domain TEST_RECIPIENT when account is pending approval.
+// Adds FORCE_TEST_EMAIL to route all mail to TEST_RECIPIENT during testing.
 
 export const runtime = 'nodejs';
 
@@ -19,7 +19,7 @@ function domainOf(addr: string) {
   return at > -1 ? addr.slice(at + 1).toLowerCase() : '';
 }
 
-// Quick GET so you can verify envs in the browser
+// Simple GET so you can verify envs in the browser
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -29,6 +29,7 @@ export async function GET() {
     hasPostmark: Boolean(process.env.POSTMARK_TOKEN),
     senderEmailSet: Boolean(process.env.SENDER_EMAIL),
     hasTestRecipient: Boolean(process.env.TEST_RECIPIENT),
+    forceTestEmail: process.env.FORCE_TEST_EMAIL === '1',
   });
 }
 
@@ -90,21 +91,19 @@ export async function POST(req: NextRequest) {
       end.setDate(end.getDate() + (interval === 'month' ? 30 : 7));
       end.setHours(11, 0, 0, 0);
 
-      // ---- email sending (with same-domain reroute while pending approval) ----
+      // ---- decide recipient (force to TEST_RECIPIENT while testing) ----
       const fromRaw = process.env.SENDER_EMAIL || '';
       const from = extractEmail(fromRaw);
-      let to = extractEmail(email) || extractEmail(process.env.TEST_RECIPIENT || '');
+      const testRec = extractEmail(process.env.TEST_RECIPIENT || '');
+      const force = process.env.FORCE_TEST_EMAIL === '1';
 
-      const fromDomain = domainOf(from);
-      const toDomain   = domainOf(to);
-      const testRec    = extractEmail(process.env.TEST_RECIPIENT || '');
-      const testDomain = domainOf(testRec);
-
-      // if guest email domain doesn't match From domain, reroute to TEST_RECIPIENT on same domain
-      if (fromDomain && toDomain && fromDomain !== toDomain && testRec && testDomain === fromDomain) {
-        console.log(`📧 Rerouting guest email (${to}) → TEST_RECIPIENT (${testRec}) due to domain mismatch while pending approval.`);
+      let to = extractEmail(email) || testRec;
+      if (force && testRec) {
+        console.log(`📧 FORCE_TEST_EMAIL is ON → sending to TEST_RECIPIENT (${testRec})`);
         to = testRec;
       }
+
+      console.log('📧 From:', fromRaw, '| To:', to);
 
       if (process.env.POSTMARK_TOKEN && from && to) {
         const greeting = [first, last].filter(Boolean).join(' ');
