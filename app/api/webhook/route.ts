@@ -1,6 +1,7 @@
 // app/api/webhook/route.ts
 // NEXT.JS (App Router) + Stripe webhook handler + Postmark email
-// Adds FORCE_TEST_EMAIL to route all mail to TEST_RECIPIENT during testing.
+// Sends on BOTH `invoice.payment_succeeded` and `checkout.session.completed`.
+// During testing, set FORCE_TEST_EMAIL=1 to always send to TEST_RECIPIENT.
 
 export const runtime = 'nodejs';
 
@@ -8,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import Stripe from 'stripe';
 
-// helpers
+// ─── helpers ──────────────────────────────────────────────────────────────────
 function extractEmail(addr?: string | null) {
   if (!addr) return '';
   const m = addr.match(/<([^>]+)>/);
@@ -19,7 +20,69 @@ function domainOf(addr: string) {
   return at > -1 ? addr.slice(at + 1).toLowerCase() : '';
 }
 
-// Simple GET so you can verify envs in the browser
+async function sendEmailViaPostmark(params: {
+  fromRaw: string;
+  toRaw?: string;
+  fallbackTo?: string;        // TEST_RECIPIENT
+  forceTest?: boolean;        // FORCE_TEST_EMAIL === '1'
+  subject: string;
+  text: string;
+  token?: string;             // POSTMARK_TOKEN
+}) {
+  const { fromRaw, toRaw, fallbackTo, forceTest, subject, text, token } = params;
+  if (!token) {
+    console.log('📧 Skipped email: POSTMARK_TOKEN missing');
+    return;
+  }
+
+  const from = extractEmail(fromRaw);
+  let to = extractEmail(toRaw || '') || extractEmail(fallbackTo || '');
+
+  const fromDomain = domainOf(from);
+  const toDomain = domainOf(to);
+  const fbDomain = domainOf(extractEmail(fallbackTo || ''));
+
+  // Force all mail to TEST_RECIPIENT while testing
+  if (forceTest && fallbackTo) {
+    console.log(`📧 FORCE_TEST_EMAIL=1 → routing all mail to TEST_RECIPIENT (${fallbackTo})`);
+    to = extractEmail(fallbackTo);
+  } else {
+    // While Postmark account is pending, cross-domain is blocked.
+    // If domains differ but fallback matches `from`, route to fallback.
+    if (fromDomain && toDomain && fromDomain !== toDomain && fallbackTo && fbDomain === fromDomain) {
+      console.log(`📧 Domain mismatch (${toDomain} ≠ ${fromDomain}) → routing to TEST_RECIPIENT (${fallbackTo})`);
+      to = extractEmail(fallbackTo);
+    }
+  }
+
+  if (!from || !to) {
+    console.log('📧 Skipped email: from/to missing', { from, to });
+    return;
+  }
+
+  console.log('📧 From:', fromRaw, '| To:', to);
+
+  const res = await fetch('https://api.postmarkapp.com/email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Postmark-Server-Token': token,
+    },
+    body: JSON.stringify({
+      From: fromRaw,                // allow "Name <user@domain>"
+      To: to,
+      Subject: subject,
+      TextBody: text,
+      MessageStream: 'outbound',
+      ReplyTo: from,
+    }),
+  });
+
+  const body = await res.text();
+  console.log('📧 Postmark response:', res.status, body);
+}
+
+// ─── GET: status ───────────────────────────────────────────────────────────────
 export async function GET() {
   return NextResponse.json({
     ok: true,
@@ -33,6 +96,7 @@ export async function GET() {
   });
 }
 
+// ─── POST: Stripe webhook ─────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const sig = headers().get('stripe-signature');
   const rawBody = Buffer.from(await req.arrayBuffer());
@@ -48,10 +112,19 @@ export async function POST(req: NextRequest) {
       process.env.STRIPE_WEBHOOK_SECRET as string
     );
 
+    console.log('✅ Stripe event:', event.type);
+
+    // Common vars for email sending
+    const fromRaw = process.env.SENDER_EMAIL || '';
+    const testRecipient = process.env.TEST_RECIPIENT || '';
+    const forceTest = process.env.FORCE_TEST_EMAIL === '1';
+    const pmToken = process.env.POSTMARK_TOKEN;
+
+    // ── Handler 1: invoice.payment_succeeded (primary for subscriptions)
     if (event.type === 'invoice.payment_succeeded') {
       const invoice = event.data.object as Stripe.Invoice;
 
-      // email from invoice or customer
+      // Try to get customer email
       let email = invoice.customer_email || undefined;
       const customerId =
         typeof invoice.customer === 'string'
@@ -66,86 +139,108 @@ export async function POST(req: NextRequest) {
         } catch {}
       }
 
-      // subscription metadata for name/phone
+      // Grab name/phone from subscription metadata
       let first = '';
       let last = '';
-      let phone = '';
       try {
         const subId = typeof invoice.subscription === 'string' ? invoice.subscription : null;
         if (subId) {
           const sub = await stripe.subscriptions.retrieve(subId);
           first = (sub.metadata?.first as string) || '';
           last  = (sub.metadata?.last as string)  || '';
-          phone = (sub.metadata?.phone as string) || '';
         }
       } catch {}
 
-      // weekly vs monthly
+      // Determine interval (week/month)
       const line = invoice.lines?.data?.[0];
       const interval = line?.price?.recurring?.interval; // 'week' | 'month'
 
-      // demo door code + validity
+      // Demo door code + validity window
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const start = new Date(); start.setHours(15, 0, 0, 0); // 3pm
+      const end = new Date(start);
+      end.setDate(end.getDate() + (interval === 'month' ? 30 : 7));
+      end.setHours(11, 0, 0, 0); // 11am
+
+      const greeting = [first, last].filter(Boolean).join(' ');
+      const text = [
+        (greeting ? `Hi ${greeting}` : 'Hi'),
+        '',
+        `Thanks for your ${interval === 'month' ? 'monthly' : 'weekly'} payment at Relax Inn.`,
+        `Your door code is: ${code}`,
+        `Valid ${start.toLocaleString()} → ${end.toLocaleString()}.`,
+        '',
+        `If you need help, call the front desk.`,
+        `— Relax Inn Hartford City`,
+      ].join('\n');
+
+      await sendEmailViaPostmark({
+        fromRaw,
+        toRaw: email,
+        fallbackTo: testRecipient,
+        forceTest,
+        subject: 'Your Relax Inn door code',
+        text,
+        token: pmToken,
+      });
+    }
+
+    // ── Handler 2: checkout.session.completed (fallback path)
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as Stripe.Checkout.Session;
+
+      // Email directly from session if present, otherwise from customer
+      let email = session.customer_details?.email || undefined;
+      const customerId = typeof session.customer === 'string' ? session.customer : undefined;
+      if (!email && customerId) {
+        try {
+          const customer = await stripe.customers.retrieve(customerId);
+          if (typeof customer === 'object' && customer && 'email' in customer) {
+            email = (customer as Stripe.Customer).email || undefined;
+          }
+        } catch {}
+      }
+
+      // Get name from metadata (we set this in checkout route)
+      const first = (session.metadata?.first as string) || '';
+      const last  = (session.metadata?.last as string)  || '';
+
+      // Figure out interval by retrieving line_items (expanded)
+      let interval: 'week' | 'month' | 'unknown' = 'unknown';
+      try {
+        const s = await stripe.checkout.sessions.retrieve(session.id, { expand: ['line_items.data.price'] });
+        const li = s.line_items?.data?.[0];
+        const rec = (li?.price as Stripe.Price | undefined)?.recurring;
+        interval = (rec?.interval as 'week' | 'month' | undefined) || 'unknown';
+      } catch {}
+
       const code = String(Math.floor(100000 + Math.random() * 900000));
       const start = new Date(); start.setHours(15, 0, 0, 0);
       const end = new Date(start);
       end.setDate(end.getDate() + (interval === 'month' ? 30 : 7));
       end.setHours(11, 0, 0, 0);
 
-      // ---- decide recipient (force to TEST_RECIPIENT while testing) ----
-      const fromRaw = process.env.SENDER_EMAIL || '';
-      const from = extractEmail(fromRaw);
-      const testRec = extractEmail(process.env.TEST_RECIPIENT || '');
-      const force = process.env.FORCE_TEST_EMAIL === '1';
+      const greeting = [first, last].filter(Boolean).join(' ');
+      const text = [
+        (greeting ? `Hi ${greeting}` : 'Hi'),
+        '',
+        `Thanks for your ${interval === 'month' ? 'monthly' : 'weekly'} payment at Relax Inn.`,
+        `Your door code is: ${code}`,
+        `Valid ${start.toLocaleString()} → ${end.toLocaleString()}.`,
+        '',
+        `If you need help, call the front desk.`,
+        `— Relax Inn Hartford City`,
+      ].join('\n');
 
-      let to = extractEmail(email) || testRec;
-      if (force && testRec) {
-        console.log(`📧 FORCE_TEST_EMAIL is ON → sending to TEST_RECIPIENT (${testRec})`);
-        to = testRec;
-      }
-
-      console.log('📧 From:', fromRaw, '| To:', to);
-
-      if (process.env.POSTMARK_TOKEN && from && to) {
-        const greeting = [first, last].filter(Boolean).join(' ');
-        const text = [
-          (greeting ? `Hi ${greeting}` : 'Hi'),
-          '',
-          `Thanks for your ${interval === 'month' ? 'monthly' : 'weekly'} payment at Relax Inn.`,
-          `Your door code is: ${code}`,
-          `Valid ${start.toLocaleString()} → ${end.toLocaleString()}.`,
-          '',
-          `If you need help, call the front desk.`,
-          `— Relax Inn Hartford City`,
-        ].join('\n');
-
-        const res = await fetch('https://api.postmarkapp.com/email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Postmark-Server-Token': process.env.POSTMARK_TOKEN as string,
-          },
-          body: JSON.stringify({
-            From: fromRaw,
-            To: to,
-            Subject: 'Your Relax Inn door code',
-            TextBody: text,
-            MessageStream: 'outbound',
-            ReplyTo: from,
-          }),
-        });
-
-        const body = await res.text();
-        console.log('📧 Postmark response:', res.status, body);
-      } else {
-        console.log('📧 Skipped email (missing POSTMARK_TOKEN/SENDER_EMAIL or no recipient).');
-      }
-    }
-
-    if (event.type === 'invoice.payment_failed') {
-      console.log('⚠️ invoice.payment_failed');
-    }
-    if (event.type === 'customer.subscription.deleted') {
-      console.log('🛑 customer.subscription.deleted (would revoke code)');
+      await sendEmailViaPostmark({
+        fromRaw,
+        toRaw: email,
+        fallbackTo: testRecipient,
+        forceTest,
+        subject: 'Your Relax Inn door code',
+        text,
+        token: pmToken,
+      });
     }
 
     return NextResponse.json({ received: true });
