@@ -7,9 +7,9 @@ import Stripe from 'stripe';
 export async function POST(req: NextRequest) {
   const { email, first, last, baseUrl } = await req.json();
 
-  // Fallbacks in case baseUrl is missing
+  // Use the exact origin the user is on, so sessionStorage matches on return
   const inferredOrigin =
-    (req.headers.get('origin')) ||
+    req.headers.get('origin') ||
     (req.headers.get('referer') ? new URL(req.headers.get('referer') as string).origin : '') ||
     (process.env.NEXT_PUBLIC_BASE_URL ?? '');
 
@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
     type: 'document',
     metadata: { email, first, last },
     options: { document: { require_matching_selfie: false } },
-    // CRITICAL: use the exact origin the user is on so sessionStorage/cookies match
-    return_url: `${origin}/apply-safe`,
+    // ⬇️ Back to the real page now that we’ve verified the flow
+    return_url: `${origin}/apply`,
   });
 
   return NextResponse.json({ id: vs.id, url: vs.url });
