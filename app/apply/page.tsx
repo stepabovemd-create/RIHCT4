@@ -59,44 +59,54 @@ function ApplyContent() {
       minute: '2-digit',
     });
 
-  // After returning from Stripe Identity (?vs=...), poll for status until it's verified
+  // Poll Identity status on return
   useEffect(() => {
-    const vsParam = params.get('vs');
-    if (!vsParam) return;
+    // Prefer ?vs=... from URL; fall back to sessionStorage if not present
+    const vsFromUrl = params.get('vs');
+    const vsFromStorage =
+      typeof window !== 'undefined' ? window.sessionStorage.getItem('rihc_vs') : null;
+    const vsId = vsFromUrl || vsFromStorage;
+
+    if (!vsId) return;
 
     let cancelled = false;
 
-    async function check(vsId: string, attempt = 0) {
+    async function check(vs: string, attempt = 0) {
       if (cancelled) return;
       setIdChecking(true);
       setIdError('');
 
       try {
-        const r = await fetch(`/api/identity/status?id=${encodeURIComponent(vsId)}`, { cache: 'no-store' });
+        const r = await fetch(`/api/identity/status?id=${encodeURIComponent(vs)}`, {
+          cache: 'no-store',
+        });
         const j = await r.json().catch(() => null);
 
         if (cancelled) return;
 
         if (j?.ok && j.status === 'verified') {
           setIdVerified(true);
+          // clear saved id; we're done
+          try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
         } else if (j?.ok && j.status === 'processing' && attempt < 8) {
-          // Stripe sometimes needs a few seconds to finalize; poll a few times
-          setTimeout(() => check(vsId, attempt + 1), 2000);
+          setTimeout(() => check(vs, attempt + 1), 2000);
         } else if (j?.ok && j.status === 'requires_input') {
           setIdError('ID verification needs more input. Please restart the verification step.');
+          try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
         } else if (j?.ok && j.status === 'canceled') {
           setIdError('ID verification was canceled.');
+          try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
         } else {
           setIdError(j?.error || 'Could not confirm ID yet. Try again in a moment.');
         }
       } catch (e: any) {
-        if (!cancelled) setIdError(e?.message || String(e));
+        setIdError(e?.message || String(e));
       } finally {
         if (!cancelled) setIdChecking(false);
       }
     }
 
-    check(vsParam, 0);
+    check(vsId, 0);
     return () => {
       cancelled = true;
     };
@@ -171,6 +181,7 @@ function ApplyContent() {
 
   async function startIdVerification() {
     if (!first || !last || !email) return alert('Fill name and email first');
+
     const r = await fetch('/api/identity/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -181,7 +192,12 @@ function ApplyContent() {
       return;
     }
     const j = await r.json();
-    window.location.href = j.url; // Stripe-hosted Identity flow; returns to /apply?vs=...
+
+    // Save the verification session ID so we can look it up after redirect
+    try { window.sessionStorage.setItem('rihc_vs', j.id); } catch {}
+
+    // Go to Stripe-hosted Identity; Stripe returns to /apply (no query needed now)
+    window.location.href = j.url;
   }
 
   return (
