@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
-export const dynamic = 'force-dynamic'; // avoid prerender errors on this page
+export const dynamic = 'force-dynamic'; // avoid prerender issues
 
 type Plan = 'weekly' | 'monthly';
 
@@ -12,30 +12,31 @@ function ApplyContent() {
 
   const [plan, setPlan] = useState<Plan>('weekly');
   const [checkin, setCheckin] = useState('');
-  const [first, setFirst]   = useState('');
-  const [last, setLast]     = useState('');
-  const [email, setEmail]   = useState('');
-  const [phone, setPhone]   = useState('');
-  const [agree, setAgree]   = useState(false);
+  const [first, setFirst] = useState('');
+  const [last, setLast] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [agree, setAgree] = useState(false);
 
   // Email OTP
-  const [otpToken, setOtpToken]       = useState('');
-  const [otpCode, setOtpCode]         = useState('');
+  const [otpToken, setOtpToken] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const [emailVerified, setEmailVerified] = useState(false);
-  const [sendingOtp, setSendingOtp]   = useState(false);
+  const [sendingOtp, setSendingOtp] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
 
-  // ID verification (Stripe Identity)
-  const [idVerified, setIdVerified]   = useState(false);
-  const [idChecking, setIdChecking]   = useState(false);
+  // ID verification
+  const [idVerified, setIdVerified] = useState(false);
+  const [idChecking, setIdChecking] = useState(false);
+  const [idError, setIdError] = useState<string>('');
 
-  // Phone verification (disabled until Twilio is configured)
+  // Phone verification (disabled for now)
   const smsRequired = false;
-  const phoneVerified = true; // treat as satisfied while disabled
+  const phoneVerified = true; // treat as satisfied until Twilio is added
 
   const [loading, setLoading] = useState(false);
 
-  // Dates & formatting
+  // Dates
   const start = useMemo(() => {
     const d = checkin ? new Date(checkin) : new Date();
     d.setHours(15, 0, 0, 0);
@@ -58,15 +59,47 @@ function ApplyContent() {
       minute: '2-digit',
     });
 
-  // If we returned from Stripe Identity, check status (?vs=...)
+  // After returning from Stripe Identity (?vs=...), poll for status until it's verified
   useEffect(() => {
     const vs = params.get('vs');
     if (!vs) return;
-    setIdChecking(true);
-    fetch(`/api/identity/status?id=${encodeURIComponent(vs)}`)
-      .then((r) => r.json())
-      .then((j) => setIdVerified(j?.status === 'verified'))
-      .finally(() => setIdChecking(false));
+
+    let cancelled = false;
+
+    async function check(attempt = 0) {
+      if (cancelled) return;
+      setIdChecking(true);
+      setIdError('');
+
+      try {
+        const r = await fetch(`/api/identity/status?id=${encodeURIComponent(vs)}`, { cache: 'no-store' });
+        const j = await r.json().catch(() => null);
+
+        if (cancelled) return;
+
+        if (j?.ok && j.status === 'verified') {
+          setIdVerified(true);
+        } else if (j?.ok && j.status === 'processing' && attempt < 8) {
+          // Stripe sometimes needs a few seconds to finalize; poll a few times
+          setTimeout(() => check(attempt + 1), 2000);
+        } else if (j?.ok && j.status === 'requires_input') {
+          setIdError('ID verification needs more input. Please restart the verification step.');
+        } else if (j?.ok && j.status === 'canceled') {
+          setIdError('ID verification was canceled.');
+        } else {
+          setIdError(j?.error || 'Could not confirm ID yet. Try again in a moment.');
+        }
+      } catch (e: any) {
+        if (!cancelled) setIdError(e?.message || String(e));
+      } finally {
+        if (!cancelled) setIdChecking(false);
+      }
+    }
+
+    check(0);
+    return () => {
+      cancelled = true;
+    };
   }, [params]);
 
   const formComplete = Boolean(first && last && email && phone && agree);
@@ -148,7 +181,7 @@ function ApplyContent() {
       return;
     }
     const j = await r.json();
-    window.location.href = j.url; // Stripe-hosted Identity; returns to /apply?vs=...
+    window.location.href = j.url; // Stripe-hosted Identity flow; returns to /apply?vs=...
   }
 
   return (
@@ -161,9 +194,7 @@ function ApplyContent() {
 
       <div className="container py-10">
         <h1 className="text-2xl font-bold">Application & Payment</h1>
-        <p className="text-slate-600 mt-1 text-sm">
-          Complete verification steps, then proceed to payment.
-        </p>
+        <p className="text-slate-600 mt-1 text-sm">Complete verification steps, then proceed to payment.</p>
 
         <div className="mt-6 grid lg:grid-cols-3 gap-8">
           {/* Left column */}
@@ -258,6 +289,7 @@ function ApplyContent() {
                   {idVerified ? 'Verified' : 'Required'}
                 </span>
               </div>
+
               {!idVerified && (
                 <div className="mt-4">
                   <button
@@ -270,8 +302,12 @@ function ApplyContent() {
                   <p className="text-xs text-slate-500 mt-2">
                     You’ll be redirected to a secure Stripe Identity page and returned here.
                   </p>
+
+                  {idChecking && <p className="text-xs text-slate-500 mt-2">Confirming your verification…</p>}
+                  {!!idError && <p className="text-xs text-red-600 mt-2">Problem: {idError}</p>}
                 </div>
               )}
+
               {idVerified && <p className="mt-3 text-sm text-green-700">ID verified.</p>}
             </div>
 
@@ -282,50 +318,3 @@ function ApplyContent() {
                   onClick={goToCheckout}
                   disabled={!canPay || loading}
                   className={`btn ${!canPay || loading ? 'btn-outline opacity-60 cursor-not-allowed' : 'btn-primary'}`}
-                >
-                  {loading ? 'Opening Checkout…' : 'Pay in Test Mode'}
-                </button>
-              </div>
-              {!canPay && (
-                <p className="mt-3 text-xs text-slate-500">
-                  Complete all fields, verify <strong>email</strong> and <strong>ID</strong>, and accept Terms to continue.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Right column */}
-          <aside className="card p-6 h-max sticky top-6">
-            <p className="font-semibold">Stay summary</p>
-            <dl className="mt-3 text-sm text-slate-700 space-y-1">
-              <div className="flex justify-between">
-                <dt>Plan</dt><dd className="font-medium capitalize">{plan}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Check-in</dt><dd className="font-medium">{fmt(start)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Check-out</dt><dd className="font-medium">{fmt(end)}</dd>
-              </div>
-            </dl>
-          </aside>
-        </div>
-      </div>
-    </main>
-  );
-}
-
-export default function Apply() {
-  return (
-    <Suspense
-      fallback={
-        <main className="container py-10">
-          <h1 className="text-2xl font-bold">Application & Payment</h1>
-          <p className="mt-2 text-slate-600">Loading…</p>
-        </main>
-      }
-    >
-      <ApplyContent />
-    </Suspense>
-  );
-}
