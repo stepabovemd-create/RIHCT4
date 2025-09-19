@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
-export const dynamic = 'force-dynamic'; // avoid prerender issues
+export const dynamic = 'force-dynamic'; // avoid prerender issues on this page
 
 type Plan = 'weekly' | 'monthly';
 
@@ -318,3 +318,50 @@ function ApplyContent() {
                   onClick={goToCheckout}
                   disabled={!canPay || loading}
                   className={`btn ${!canPay || loading ? 'btn-outline opacity-60 cursor-not-allowed' : 'btn-primary'}`}
+                >
+                  {loading ? 'Opening Checkout…' : 'Pay in Test Mode'}
+                </button>
+              </div>
+              {!canPay && (
+                <p className="mt-3 text-xs text-slate-500">
+                  Complete all fields, verify <strong>email</strong> and <strong>ID</strong>, and accept Terms to continue.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Right column */}
+          <aside className="card p-6 h-max sticky top-6">
+            <p className="font-semibold">Stay summary</p>
+            <dl className="mt-3 text-sm text-slate-700 space-y-1">
+              <div className="flex justify-between">
+                <dt>Plan</dt><dd className="font-medium capitalize">{plan}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Check-in</dt><dd className="font-medium">{fmt(start)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Check-out</dt><dd className="font-medium">{fmt(end)}</dd>
+              </div>
+            </dl>
+          </aside>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export default function Apply() {
+  return (
+    <Suspense
+      fallback={
+        <main className="container py-10">
+          <h1 className="text-2xl font-bold">Application & Payment</h1>
+          <p className="mt-2 text-slate-600">Loading…</p>
+        </main>
+      }
+    >
+      <ApplyContent />
+    </Suspense>
+  );
+}
