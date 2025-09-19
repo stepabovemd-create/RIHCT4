@@ -61,18 +61,18 @@ function ApplyContent() {
 
   // After returning from Stripe Identity (?vs=...), poll for status until it's verified
   useEffect(() => {
-    const vs = params.get('vs');
-    if (!vs) return;
+    const vsParam = params.get('vs');
+    if (!vsParam) return;
 
     let cancelled = false;
 
-    async function check(attempt = 0) {
+    async function check(vsId: string, attempt = 0) {
       if (cancelled) return;
       setIdChecking(true);
       setIdError('');
 
       try {
-        const r = await fetch(`/api/identity/status?id=${encodeURIComponent(vs)}`, { cache: 'no-store' });
+        const r = await fetch(`/api/identity/status?id=${encodeURIComponent(vsId)}`, { cache: 'no-store' });
         const j = await r.json().catch(() => null);
 
         if (cancelled) return;
@@ -81,7 +81,7 @@ function ApplyContent() {
           setIdVerified(true);
         } else if (j?.ok && j.status === 'processing' && attempt < 8) {
           // Stripe sometimes needs a few seconds to finalize; poll a few times
-          setTimeout(() => check(attempt + 1), 2000);
+          setTimeout(() => check(vsId, attempt + 1), 2000);
         } else if (j?.ok && j.status === 'requires_input') {
           setIdError('ID verification needs more input. Please restart the verification step.');
         } else if (j?.ok && j.status === 'canceled') {
@@ -96,7 +96,7 @@ function ApplyContent() {
       }
     }
 
-    check(0);
+    check(vsParam, 0);
     return () => {
       cancelled = true;
     };
