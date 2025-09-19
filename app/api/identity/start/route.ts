@@ -11,11 +11,11 @@ export async function POST(req: NextRequest) {
   const vs = await stripe.identity.verificationSessions.create({
     type: 'document',
     metadata: { email, first, last },
-    options: { document: { require_matching_selfie: false } }, // set true if you want selfies
-    // No token here — we'll persist the ID on the client
-    return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/apply`,
+    options: { document: { require_matching_selfie: false } },
+    // For now, return to Safe Mode page so we can see everything clearly
+    return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/apply-safe`,
   });
 
-  // We return both the ID and hosted URL. The client will save ID locally, then redirect to vs.url.
+  // Return both the id and the hosted URL
   return NextResponse.json({ id: vs.id, url: vs.url });
 }
