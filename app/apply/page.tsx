@@ -58,7 +58,7 @@ function ApplyContent() {
   const [idVerified, setIdVerified] = useState(false);
   const [idChecking, setIdChecking] = useState(false);
   const [idError, setIdError] = useState<string>('');
-  const [debugVs, setDebugVs] = useState<string>('');
+  const [debugVs, setDebugVs] = useState<string>(''); // optional ribbon text
 
   // Phone verification (disabled for now)
   const smsRequired = false;
@@ -66,6 +66,7 @@ function ApplyContent() {
 
   const [loading, setLoading] = useState(false);
 
+  // Dates
   const start = useMemo(() => {
     const d = checkin ? new Date(checkin) : new Date();
     d.setHours(15, 0, 0, 0);
@@ -88,27 +89,25 @@ function ApplyContent() {
       minute: '2-digit',
     });
 
-  // On return from Stripe Identity, poll status using either ?vs=... or sessionStorage('rihc_vs')
+  // If we ever return to /apply with a VS id (or one saved in sessionStorage), poll for status
   useEffect(() => {
     const vsFromUrl = params.get('vs');
     const vsFromStorage = typeof window !== 'undefined' ? window.sessionStorage.getItem('rihc_vs') : null;
     const vsId = vsFromUrl || vsFromStorage || '';
 
-    setDebugVs(vsId || '(none)'); // debug ribbon
+    setDebugVs(vsId || '(none)');
     if (!vsId) return;
 
     let cancelled = false;
 
-    async function check(vs: string, attempt = 0) {
+    const check = async (vs: string, attempt: number = 0) => {
       if (cancelled) return;
       setIdChecking(true);
       setIdError('');
 
       try {
-        console.log('[ID] Checking status for', vs);
         const r = await fetch(`/api/identity/status?id=${encodeURIComponent(vs)}`, { cache: 'no-store' });
         const j = await r.json().catch(() => null);
-        console.log('[ID] Status response:', j);
 
         if (cancelled) return;
 
@@ -116,7 +115,7 @@ function ApplyContent() {
           setIdVerified(true);
           try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
         } else if (j?.ok && j.status === 'processing' && attempt < 10) {
-          setTimeout(() => check(vs, attempt + 1), 2000);
+          setTimeout(() => { void check(vs, attempt + 1); }, 2000);
         } else if (j?.ok && j.status === 'requires_input') {
           setIdError('ID verification needs more input. Please restart the verification step.');
           try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
@@ -127,17 +126,14 @@ function ApplyContent() {
           setIdError(j?.error || 'Could not confirm ID yet. Try again in a moment.');
         }
       } catch (e: any) {
-        console.error('[ID] status error', e);
         setIdError(e?.message || String(e));
       } finally {
         if (!cancelled) setIdChecking(false);
       }
-    }
-
-    check(vsId, 0);
-    return () => {
-      cancelled = true;
     };
+
+    void check(vsId, 0);
+    return () => { cancelled = true; };
   }, [params]);
 
   const formComplete = Boolean(first && last && email && phone && agree);
@@ -210,10 +206,13 @@ function ApplyContent() {
   async function startIdVerification() {
     if (!first || !last || !email) return alert('Fill name and email first');
 
+    // IMPORTANT: send the exact origin we're on so Stripe returns to the same host
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+
     const r = await fetch('/api/identity/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, first, last }),
+      body: JSON.stringify({ email, first, last, baseUrl }),
     });
     if (!r.ok) {
       alert(await r.text());
@@ -221,15 +220,16 @@ function ApplyContent() {
     }
     const j = await r.json();
 
-    // Save the verification session ID so we can check it after redirect
+    // Save the verification session ID locally; we'll use it after redirect
     try { window.sessionStorage.setItem('rihc_vs', j.id); } catch {}
 
-    window.location.href = j.url; // Stripe returns to /apply (we pick up the saved vs)
+    // Stripe will return to `${baseUrl}/apply-safe` (temporarily while we debug)
+    window.location.href = j.url;
   }
 
   return (
     <main>
-      {/* Debug ribbon: shows which VS id we're using */}
+      {/* Debug ribbon: shows which VS id (if any) we're using */}
       <div className="bg-blue-50 border-b border-blue-100">
         <div className="container py-2 text-xs text-blue-800">
           Email + ID verification required. Debug VS: <span className="font-mono">{debugVs}</span>
