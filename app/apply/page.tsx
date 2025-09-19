@@ -4,7 +4,6 @@ import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 
 type Plan = 'weekly' | 'monthly';
 
@@ -18,7 +17,6 @@ class ApplyErrorBoundary extends React.Component<{ children: React.ReactNode }, 
     return { hasError: true, msg: String(err?.message || err) };
   }
   componentDidCatch(error: any, info: any) {
-    // surfaces in Vercel logs
     console.error('ApplyErrorBoundary:', error, info);
   }
   render() {
@@ -28,7 +26,7 @@ class ApplyErrorBoundary extends React.Component<{ children: React.ReactNode }, 
           <h1 className="text-2xl font-bold">Something went wrong on this page.</h1>
           <p className="mt-2 text-red-700 text-sm break-words">Error: {this.state.msg}</p>
           <p className="mt-4 text-slate-600 text-sm">
-            You can refresh the page and try again, or click “Start ID verification” once more.
+            Refresh the page and try again, or click “Start ID verification” once more.
           </p>
         </main>
       );
@@ -231,7 +229,7 @@ function ApplyContent() {
 
   return (
     <main>
-      {/* Debug ribbon: shows which VS id we're using, so you can confirm it's not empty */}
+      {/* Debug ribbon: shows which VS id we're using */}
       <div className="bg-blue-50 border-b border-blue-100">
         <div className="container py-2 text-xs text-blue-800">
           Email + ID verification required. Debug VS: <span className="font-mono">{debugVs}</span>
