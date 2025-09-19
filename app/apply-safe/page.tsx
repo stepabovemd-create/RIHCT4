@@ -30,13 +30,14 @@ function SafeContent() {
 
       let cancelled = false;
 
-      async function poll(attempt = 0) {
+      // Use an arrow function (OK under ES5 target)
+      const poll = async (attempt: number = 0) => {
         if (cancelled) return;
         const r = await fetch(
           `/api/identity/status?id=${encodeURIComponent(id)}&t=${Date.now()}`,
           { cache: 'no-store' }
         );
-        const j = await r.json().catch(() => ({}));
+        const j = await r.json().catch(() => ({} as any));
         setStatus(JSON.stringify(j, null, 2));
 
         if (j?.ok && j.status === 'verified') {
@@ -56,18 +57,16 @@ function SafeContent() {
           return;
         }
         if (attempt < 10) {
-          setTimeout(() => poll(attempt + 1), 1500);
+          setTimeout(() => { void poll(attempt + 1); }, 1500);
         } else {
           setMsg('Finished polling. If not verified, try the verification again.');
           setPolling(false);
         }
-      }
-
-      poll();
-
-      return () => {
-        cancelled = true;
       };
+
+      void poll(0);
+
+      return () => { cancelled = true; };
     } catch (e: any) {
       setMsg('Error: ' + (e?.message || String(e)));
       setPolling(false);
