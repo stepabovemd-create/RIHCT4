@@ -7,6 +7,19 @@ export const dynamic = 'force-dynamic';
 
 type Plan = 'weekly' | 'monthly';
 
+type SavedForm = {
+  plan: Plan;
+  checkin: string;
+  first: string;
+  last: string;
+  email: string;
+  phone: string;
+  agree: boolean;
+  emailVerified?: boolean; // we’ll persist this too
+};
+
+const STORAGE_KEY = 'rihc_apply_form';
+
 /** ---------- Error Boundary so the page never goes blank ---------- */
 class ApplyErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -74,6 +87,34 @@ function ApplyContent() {
   useEffect(() => {
     try { window.scrollTo({ top: 0 }); } catch {}
   }, []);
+
+  /** Load saved form on mount */
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
+      if (raw) {
+        const s = JSON.parse(raw) as SavedForm;
+        if (s && typeof s === 'object') {
+          if (s.plan) setPlan(s.plan);
+          if (s.checkin) setCheckin(s.checkin);
+          if (s.first) setFirst(s.first);
+          if (s.last) setLast(s.last);
+          if (s.email) setEmail(s.email);
+          if (s.phone) setPhone(s.phone);
+          if (typeof s.agree === 'boolean') setAgree(s.agree);
+          if (typeof s.emailVerified === 'boolean') setEmailVerified(s.emailVerified);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  /** Persist form whenever it changes */
+  useEffect(() => {
+    const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+  }, [plan, checkin, first, last, email, phone, agree, emailVerified]);
 
   // Dates
   const start = useMemo(() => {
@@ -218,6 +259,12 @@ function ApplyContent() {
   async function startIdVerification() {
     if (!first || !last || !email) return alert('Fill name and email first');
 
+    // IMPORTANT: save form just before we leave, in case a field changed
+    try {
+      const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {}
+
     // IMPORTANT: send the exact origin we're on so Stripe returns to the same host
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -256,7 +303,7 @@ function ApplyContent() {
 
   return (
     <main>
-      {/* Debug ribbon: shows which VS id (if any) we're using */}
+      {/* Debug ribbon */}
       <div style={{ background: '#eff6ff', borderBottom: '1px solid #bfdbfe' }}>
         <div style={{ ...containerStyle, paddingTop: 10, paddingBottom: 10 }}>
           <div style={{ fontSize: 12, color: '#1e40af' }}>
@@ -266,10 +313,11 @@ function ApplyContent() {
             <button
               onClick={() => {
                 try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
+                try { window.localStorage.removeItem(STORAGE_KEY); } catch {}
                 location.reload();
               }}
               style={{ marginLeft: 12, padding: '4px 8px', borderRadius: 8, border: '1px solid #93c5fd', background: '#dbeafe' }}
-              title="Clear saved VS id and reload"
+              title="Clear saved VS/form and reload"
             >
               Reset
             </button>
@@ -284,7 +332,7 @@ function ApplyContent() {
         </p>
 
         <div style={{ display: 'grid', gap: 24, gridTemplateColumns: '1fr', alignItems: 'start' }}>
-          {/* Left column (stacked on mobile) */}
+          {/* Left column */}
           <div style={{ display: 'grid', gap: 16 }}>
             {/* Guest info */}
             <div style={cardStyle}>
