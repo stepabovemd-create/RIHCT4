@@ -7,11 +7,15 @@ export const dynamic = 'force-dynamic';
 
 type Plan = 'weekly' | 'monthly';
 
-// 👉 Add your logo file at /public/relax-inn-logo.png or put a full URL here:
-const LOGO_URL = '/relax-inn-logo.png'; // e.g. 'https://your-domain.com/path/logo.png'
-const BRAND = '#135c92'; // Relax Inn blue
+// ====== Brand setup ======
+const BRAND = '#135c92';            // Relax Inn blue
+const BRAND_DARK = '#0f3f6c';       // darker shade for gradient
+const ACCENT_BG = '#f8fafc';        // light background
+const CARD_BORDER = '#e2e8f0';
+// Put your logo at: public/relax-inn-logo.png (recommended)
+const LOGO_URL = '/relax-inn-logo.png';
 
-/** ---------- Error Boundary so the page never goes blank ---------- */
+// ====== Error Boundary (prevents blank page) ======
 class ApplyErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; msg?: string }
@@ -44,7 +48,7 @@ class ApplyErrorBoundary extends React.Component<
   }
 }
 
-/** -------------------- Main Page -------------------- */
+// ====== Page ======
 function ApplyContent() {
   const params = useSearchParams();
 
@@ -68,7 +72,7 @@ function ApplyContent() {
   const [idChecking, setIdChecking] = useState(false);
   const [idError, setIdError] = useState<string>('');
 
-  // Phone verification (disabled for now)
+  // Phone verification (reserved for later)
   const smsRequired = false;
   const phoneVerified = true;
 
@@ -247,7 +251,7 @@ function ApplyContent() {
     color: '#0f172a',
   };
   const card: React.CSSProperties = {
-    border: '1px solid #e2e8f0',
+    border: `1px solid ${CARD_BORDER}`,
     borderRadius: 14,
     padding: 18,
     background: '#fff',
@@ -264,24 +268,24 @@ function ApplyContent() {
   const btnOutline: React.CSSProperties = {
     padding: '8px 12px',
     borderRadius: 10,
-    border: '1px solid #cbd5e1',
+    border: `1px solid ${CARD_BORDER}`,
     background: '#fff',
     cursor: 'pointer',
   };
   const label: React.CSSProperties = { fontSize: 12, fontWeight: 600 };
   const input: React.CSSProperties = {
     width: '100%',
-    border: '1px solid #cbd5e1',
+    border: `1px solid ${CARD_BORDER}`,
     borderRadius: 10,
     padding: '10px 12px',
   };
 
   return (
-    <main style={{ background: '#f8fafc', minHeight: '100vh' }}>
+    <main style={{ background: ACCENT_BG, minHeight: '100vh' }}>
       {/* Header */}
       <header
         style={{
-          background: `linear-gradient(180deg, ${BRAND} 0%, #0f3f6c 100%)`,
+          background: `linear-gradient(180deg, ${BRAND} 0%, ${BRAND_DARK} 100%)`,
           color: '#fff',
           padding: '18px 0',
           borderBottom: '1px solid rgba(255,255,255,0.15)',
@@ -304,7 +308,6 @@ function ApplyContent() {
               }}
               aria-label="Relax Inn Logo"
             >
-              {/* If logo image exists, it will render; otherwise the fallback initials show. */}
               <img
                 src={LOGO_URL}
                 alt="Relax Inn logo"
@@ -325,26 +328,15 @@ function ApplyContent() {
         </div>
       </header>
 
+      {/* Content */}
       <div style={containerStyle}>
-        {/* Page title bar */}
-        <div
-          style={{
-            marginTop: 18,
-            marginBottom: 12,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: '#0f172a' }}>
-              Application & Payment
-            </h1>
-            <p style={{ marginTop: 6, color: '#475569', fontSize: 14 }}>
-              Verify your email and ID, then complete checkout. Your door code arrives by email.
-            </p>
-          </div>
+        <div style={{ marginTop: 18, marginBottom: 12 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: '#0f172a' }}>
+            Application & Payment
+          </h1>
+          <p style={{ marginTop: 6, color: '#475569', fontSize: 14 }}>
+            Verify your email and ID, then complete checkout. Your door code arrives by email.
+          </p>
         </div>
 
         <div style={{ display: 'grid', gap: 24, gridTemplateColumns: '1fr', alignItems: 'start' }}>
@@ -536,12 +528,29 @@ function ApplyContent() {
                 <dd style={{ margin: 0, fontWeight: 600 }}>{fmt(end)}</dd>
               </div>
             </dl>
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0', fontSize: 12, color: '#64748b' }}>
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${CARD_BORDER}`, fontSize: 12, color: '#64748b' }}>
               Need help? Call the front desk.
             </div>
           </aside>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer style={{ background: '#ffffff', borderTop: `1px solid ${CARD_BORDER}`, marginTop: 32 }}>
+        <div style={{ ...containerStyle, paddingTop: 18, paddingBottom: 18, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8, background: BRAND, color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800
+            }}>RI</div>
+            <div style={{ fontWeight: 700, color: '#0f172a' }}>Relax Inn of Hartford City</div>
+          </div>
+          <div style={{ fontSize: 13, color: '#475569' }}>
+            {/* TODO: replace with your real info */}
+            24/7 Front Desk • <a href="tel:0000000000" style={{ color: BRAND, textDecoration: 'none', fontWeight: 600 }}>({`xxx`}) xxx-xxxx</a>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }
