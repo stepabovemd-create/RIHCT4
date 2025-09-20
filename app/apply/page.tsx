@@ -8,7 +8,10 @@ export const dynamic = 'force-dynamic';
 type Plan = 'weekly' | 'monthly';
 
 /** ---------- Error Boundary so the page never goes blank ---------- */
-class ApplyErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; msg?: string }> {
+class ApplyErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; msg?: string }
+> {
   constructor(props: any) {
     super(props);
     this.state = { hasError: false, msg: '' };
@@ -22,10 +25,12 @@ class ApplyErrorBoundary extends React.Component<{ children: React.ReactNode }, 
   render() {
     if (this.state.hasError) {
       return (
-        <main className="container py-10">
-          <h1 className="text-2xl font-bold">Something went wrong on this page.</h1>
-          <p className="mt-2 text-red-700 text-sm break-words">Error: {this.state.msg}</p>
-          <p className="mt-4 text-slate-600 text-sm">
+        <main style={{ padding: 24, fontFamily: 'system-ui' }}>
+          <h1 style={{ fontSize: 22, margin: 0 }}>Something went wrong on this page.</h1>
+          <p style={{ marginTop: 8, color: '#b91c1c', wordBreak: 'break-word' }}>
+            Error: {this.state.msg}
+          </p>
+          <p style={{ marginTop: 12 }}>
             Refresh the page and try again, or click “Start ID verification” once more.
           </p>
         </main>
@@ -58,13 +63,28 @@ function ApplyContent() {
   const [idVerified, setIdVerified] = useState(false);
   const [idChecking, setIdChecking] = useState(false);
   const [idError, setIdError] = useState<string>('');
-  const [debugVs, setDebugVs] = useState<string>(''); // optional ribbon text
+  const [debugVs, setDebugVs] = useState<string>(''); // shows current VS id (or (none))
 
   // Phone verification (disabled for now)
   const smsRequired = false;
   const phoneVerified = true;
 
   const [loading, setLoading] = useState(false);
+
+  // Debug: confirm sections mounted
+  const [mountedFlags, setMountedFlags] = useState({
+    pageMounted: false,
+    infoMounted: false,
+    emailMounted: false,
+    idMounted: false,
+    actionsMounted: false,
+  });
+
+  useEffect(() => {
+    setMountedFlags((f) => ({ ...f, pageMounted: true }));
+    // scroll to top on return from Stripe to ensure you see the header
+    try { window.scrollTo({ top: 0 }); } catch {}
+  }, []);
 
   // Dates
   const start = useMemo(() => {
@@ -89,10 +109,11 @@ function ApplyContent() {
       minute: '2-digit',
     });
 
-  // If we ever return to /apply with a VS id (or one saved in sessionStorage), poll for status
+  // On return from Stripe Identity, poll status using either ?vs=... or sessionStorage('rihc_vs')
   useEffect(() => {
     const vsFromUrl = params.get('vs');
-    const vsFromStorage = typeof window !== 'undefined' ? window.sessionStorage.getItem('rihc_vs') : null;
+    const vsFromStorage =
+      typeof window !== 'undefined' ? window.sessionStorage.getItem('rihc_vs') : null;
     const vsId = vsFromUrl || vsFromStorage || '';
 
     setDebugVs(vsId || '(none)');
@@ -106,7 +127,9 @@ function ApplyContent() {
       setIdError('');
 
       try {
-        const r = await fetch(`/api/identity/status?id=${encodeURIComponent(vs)}`, { cache: 'no-store' });
+        const r = await fetch(`/api/identity/status?id=${encodeURIComponent(vs)}`, {
+          cache: 'no-store',
+        });
         const j = await r.json().catch(() => null);
 
         if (cancelled) return;
@@ -223,131 +246,212 @@ function ApplyContent() {
     // Save the verification session ID locally; we'll use it after redirect
     try { window.sessionStorage.setItem('rihc_vs', j.id); } catch {}
 
-    // Stripe will return to `${baseUrl}/apply-safe` (temporarily while we debug)
+    // Stripe will return to `${baseUrl}/apply`
     window.location.href = j.url;
   }
 
+  const cardStyle: React.CSSProperties = {
+    border: '1px solid #e2e8f0',
+    borderRadius: 12,
+    padding: 16,
+    background: '#fff',
+  };
+
+  const containerStyle: React.CSSProperties = {
+    maxWidth: 1100,
+    margin: '0 auto',
+    padding: '24px',
+    fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+    color: '#0f172a',
+  };
+
   return (
     <main>
-      {/* Debug ribbon: shows which VS id (if any) we're using */}
-      <div className="bg-blue-50 border-b border-blue-100">
-        <div className="container py-2 text-xs text-blue-800">
-          Email + ID verification required. Debug VS: <span className="font-mono">{debugVs}</span>
+      {/* Debug ribbon: shows which VS id (if any) we're using + states */}
+      <div style={{ background: '#eff6ff', borderBottom: '1px solid #bfdbfe' }}>
+        <div style={{ ...containerStyle, paddingTop: 10, paddingBottom: 10 }}>
+          <div style={{ fontSize: 12, color: '#1e40af' }}>
+            Debug — VS: <code>{debugVs || '(none)'}</code> · emailVerified:
+            <b> {String(emailVerified)}</b> · idVerified:<b> {String(idVerified)}</b> · canPay:
+            <b> {String(canPay)}</b>
+            <span style={{ marginLeft: 10, opacity: 0.7 }}>
+              sections: {Object.entries(mountedFlags).map(([k, v]) => `${k}:${v ? '✓' : '—'}`).join(' · ')}
+            </span>
+            <button
+              onClick={() => {
+                try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
+                location.reload();
+              }}
+              style={{ marginLeft: 12, padding: '4px 8px', borderRadius: 8, border: '1px solid #93c5fd', background: '#dbeafe' }}
+              title="Clear saved VS id and reload"
+            >
+              Reset
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="container py-10">
-        <h1 className="text-2xl font-bold">Application & Payment</h1>
-        <p className="text-slate-600 mt-1 text-sm">Complete verification steps, then proceed to payment.</p>
+      <div style={containerStyle}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Application & Payment</h1>
+        <p style={{ marginTop: 6, color: '#475569' }}>
+          Complete verification steps, then proceed to payment.
+        </p>
 
-        <div className="mt-6 grid lg:grid-cols-3 gap-8">
-          {/* Left column */}
-          <div className="lg:col-span-2 space-y-6">
+        <div style={{ display: 'grid', gap: 24, gridTemplateColumns: '1fr', alignItems: 'start' }}>
+          {/* Left column (stacked on mobile) */}
+          <div style={{ display: 'grid', gap: 16 }}>
             {/* Guest info */}
-            <div className="card p-6">
-              <h2 className="font-semibold">Guest information</h2>
-              <div className="grid sm:grid-cols-2 gap-4 mt-4">
-                <label className="block">
-                  <span className="text-sm font-medium">First name</span>
-                  <input className="input mt-1" value={first} onChange={(e) => setFirst(e.target.value)} />
+            <div style={cardStyle}>
+              {setMountedFlags && !mountedFlags.infoMounted && setTimeout(() => setMountedFlags((f) => ({ ...f, infoMounted: true })), 0)}
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Guest information</h2>
+              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
+                <label>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>First name</div>
+                  <input value={first} onChange={(e) => setFirst(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
                 </label>
-                <label className="block">
-                  <span className="text-sm font-medium">Last name</span>
-                  <input className="input mt-1" value={last} onChange={(e) => setLast(e.target.value)} />
+                <label>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>Last name</div>
+                  <input value={last} onChange={(e) => setLast(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
                 </label>
-                <label className="block">
-                  <span className="text-sm font-medium">Email</span>
-                  <input type="email" className="input mt-1" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <label>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>Email</div>
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
                 </label>
-                <label className="block">
-                  <span className="text-sm font-medium">Phone</span>
-                  <input inputMode="tel" className="input mt-1" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                <label>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>Phone</div>
+                  <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
                 </label>
-                <label className="block">
-                  <span className="text-sm font-medium">Plan</span>
-                  <select className="select mt-1" value={plan} onChange={(e) => setPlan(e.target.value as Plan)}>
+                <label>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>Plan</div>
+                  <select value={plan} onChange={(e) => setPlan(e.target.value as Plan)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
                   </select>
                 </label>
-                <label className="block">
-                  <span className="text-sm font-medium">Check-in date</span>
-                  <input type="date" className="input mt-1" value={checkin} onChange={(e) => setCheckin(e.target.value)} />
+                <label>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>Check-in date</div>
+                  <input type="date" value={checkin} onChange={(e) => setCheckin(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
                 </label>
               </div>
-              <div className="mt-6 flex items-start gap-2">
-                <input id="agree" type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-1" />
-                <label htmlFor="agree" className="text-sm text-slate-700">
-                  I agree to the <a className="text-[color:var(--brand)] underline" href="/terms" target="_blank" rel="noreferrer">Terms & Conditions</a>.
-                </label>
-              </div>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 12 }}>
+                <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} style={{ marginTop: 4 }} />
+                <span style={{ fontSize: 13, color: '#334155' }}>
+                  I agree to the <a href="/terms" target="_blank" rel="noreferrer" style={{ color: '#1d4ed8' }}>Terms & Conditions</a>.
+                </span>
+              </label>
             </div>
 
             {/* Email verification */}
-            <div className="card p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="font-semibold">Step 1 — Verify your email</h2>
-                <span className={`badge ${emailVerified ? 'bg-blue-100 text-blue-800' : ''}`}>{emailVerified ? 'Verified' : 'Required'}</span>
+            <div style={cardStyle}>
+              {setMountedFlags && !mountedFlags.emailMounted && setTimeout(() => setMountedFlags((f) => ({ ...f, emailMounted: true })), 0)}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Step 1 — Verify your email</h2>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: emailVerified ? '#dbeafe' : '#e2e8f0',
+                  color: emailVerified ? '#1e40af' : '#475569',
+                  fontSize: 12
+                }}>
+                  {emailVerified ? 'Verified' : 'Required'}
+                </span>
               </div>
               {!emailVerified && (
-                <div className="mt-4 grid sm:grid-cols-[1fr_auto] gap-3">
-                  <button onClick={sendOtp} disabled={!email || sendingOtp} className="btn btn-outline">
+                <div style={{ marginTop: 12, display: 'grid', gap: 12, gridTemplateColumns: 'auto 1fr auto' }}>
+                  <button onClick={sendOtp} disabled={!email || sendingOtp} style={{ padding: '8px 12px', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff' }}>
                     {sendingOtp ? 'Sending…' : 'Send code'}
                   </button>
-                  <div className="grid grid-cols-[1fr_auto] gap-3">
-                    <input className="input" placeholder="Enter 6-digit code" value={otpCode} onChange={(e) => setOtpCode(e.target.value)} />
-                    <button onClick={verifyOtp} disabled={!otpToken || !otpCode || verifyingOtp} className="btn btn-primary">
-                      {verifyingOtp ? 'Verifying…' : 'Verify'}
-                    </button>
-                  </div>
+                  <input
+                    placeholder="Enter 6-digit code"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}
+                  />
+                  <button onClick={verifyOtp} disabled={!otpToken || !otpCode || verifyingOtp} style={{ padding: '8px 12px', borderRadius: 10, background: '#1d4ed8', color: '#fff', border: 0 }}>
+                    {verifyingOtp ? 'Verifying…' : 'Verify'}
+                  </button>
                 </div>
               )}
-              {emailVerified && <p className="mt-3 text-sm text-green-700">Email verified.</p>}
+              {emailVerified && <p style={{ marginTop: 8, color: '#166534', fontSize: 13 }}>Email verified.</p>}
             </div>
 
             {/* ID verification */}
-            <div className="card p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="font-semibold">Step 2 — Verify your ID</h2>
-                <span className={`badge ${idVerified ? 'bg-blue-100 text-blue-800' : ''}`}>{idVerified ? 'Verified' : 'Required'}</span>
+            <div style={cardStyle}>
+              {setMountedFlags && !mountedFlags.idMounted && setTimeout(() => setMountedFlags((f) => ({ ...f, idMounted: true })), 0)}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Step 2 — Verify your ID</h2>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: idVerified ? '#dbeafe' : '#e2e8f0',
+                  color: idVerified ? '#1e40af' : '#475569',
+                  fontSize: 12
+                }}>
+                  {idVerified ? 'Verified' : 'Required'}
+                </span>
               </div>
 
               {!idVerified && (
-                <div className="mt-4">
-                  <button onClick={startIdVerification} className="btn btn-primary" disabled={!first || !last || !email || idChecking}>
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    onClick={startIdVerification}
+                    disabled={!first || !last || !email || idChecking}
+                    style={{ padding: '8px 12px', borderRadius: 10, background: '#1d4ed8', color: '#fff', border: 0 }}
+                  >
                     {idChecking ? 'Checking…' : 'Start ID verification'}
                   </button>
-                  <p className="text-xs text-slate-500 mt-2">You’ll be redirected to a secure Stripe Identity page and returned here.</p>
-                  {idChecking && <p className="text-xs text-slate-500 mt-2">Confirming your verification…</p>}
-                  {!!idError && <p className="text-xs text-red-600 mt-2">Problem: {idError}</p>}
+                  <p style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
+                    You’ll be redirected to a secure Stripe Identity page and returned here.
+                  </p>
+
+                  {idChecking && <p style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>Confirming your verification…</p>}
+                  {!!idError && <p style={{ fontSize: 12, color: '#b91c1c', marginTop: 8 }}>Problem: {idError}</p>}
                 </div>
               )}
 
-              {idVerified && <p className="mt-3 text-sm text-green-700">ID verified.</p>}
+              {idVerified && <p style={{ marginTop: 8, color: '#166534', fontSize: 13 }}>ID verified.</p>}
             </div>
 
             {/* Actions */}
-            <div className="card p-6">
-              <div className="flex flex-wrap gap-3">
-                <button onClick={goToCheckout} disabled={!canPay || loading} className={`btn ${!canPay || loading ? 'btn-outline opacity-60 cursor-not-allowed' : 'btn-primary'}`}>
+            <div style={cardStyle}>
+              {setMountedFlags && !mountedFlags.actionsMounted && setTimeout(() => setMountedFlags((f) => ({ ...f, actionsMounted: true })), 0)}
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <button
+                  onClick={goToCheckout}
+                  disabled={!canPay || loading}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: 12,
+                    border: 0,
+                    background: !canPay || loading ? '#e2e8f0' : '#1d4ed8',
+                    color: !canPay || loading ? '#475569' : '#fff',
+                    cursor: !canPay || loading ? 'not-allowed' : 'pointer'
+                  }}
+                >
                   {loading ? 'Opening Checkout…' : 'Pay in Test Mode'}
                 </button>
               </div>
               {!canPay && (
-                <p className="mt-3 text-xs text-slate-500">
-                  Complete all fields, verify <strong>email</strong> and <strong>ID</strong>, and accept Terms to continue.
+                <p style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                  Complete all fields, verify <b>email</b> and <b>ID</b>, and accept Terms to continue.
                 </p>
               )}
             </div>
           </div>
 
-          {/* Right column */}
-          <aside className="card p-6 h-max sticky top-6">
-            <p className="font-semibold">Stay summary</p>
-            <dl className="mt-3 text-sm text-slate-700 space-y-1">
-              <div className="flex justify-between"><dt>Plan</dt><dd className="font-medium capitalize">{plan}</dd></div>
-              <div className="flex justify-between"><dt>Check-in</dt><dd className="font-medium">{fmt(start)}</dd></div>
-              <div className="flex justify-between"><dt>Check-out</dt><dd className="font-medium">{fmt(end)}</dd></div>
+          {/* Right column (simple summary) */}
+          <aside style={{ ...cardStyle }}>
+            <p style={{ fontWeight: 600 }}>Stay summary</p>
+            <dl style={{ marginTop: 8, fontSize: 14, color: '#334155' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <dt>Plan</dt><dd style={{ margin: 0, fontWeight: 600, textTransform: 'capitalize' }}>{plan}</dd>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <dt>Check-in</dt><dd style={{ margin: 0, fontWeight: 600 }}>{fmt(start)}</dd>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <dt>Check-out</dt><dd style={{ margin: 0, fontWeight: 600 }}>{fmt(end)}</dd>
+              </div>
             </dl>
           </aside>
         </div>
@@ -361,9 +465,9 @@ export default function Apply() {
     <ApplyErrorBoundary>
       <Suspense
         fallback={
-          <main className="container py-10">
-            <h1 className="text-2xl font-bold">Application & Payment</h1>
-            <p className="mt-2 text-slate-600">Loading…</p>
+          <main style={{ padding: 24, fontFamily: 'system-ui' }}>
+            <h1 style={{ fontSize: 22, margin: 0 }}>Application & Payment</h1>
+            <p style={{ marginTop: 8, color: '#475569' }}>Loading…</p>
           </main>
         }
       >
