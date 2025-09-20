@@ -8,12 +8,24 @@ export const dynamic = 'force-dynamic';
 type Plan = 'weekly' | 'monthly';
 
 // ====== Brand setup ======
-const BRAND = '#135c92';            // Relax Inn blue
-const BRAND_DARK = '#0f3f6c';       // darker shade for gradient
-const ACCENT_BG = '#f8fafc';        // light background
+const BRAND = '#135c92';
+const BRAND_DARK = '#0f3f6c';
+const ACCENT_BG = '#f8fafc';
 const CARD_BORDER = '#e2e8f0';
-// Put your logo at: public/relax-inn-logo.png (recommended)
 const LOGO_URL = '/relax-inn-logo.png';
+
+// ====== Persist form between redirects ======
+type SavedForm = {
+  plan: Plan;
+  checkin: string;
+  first: string;
+  last: string;
+  email: string;
+  phone: string;
+  agree: boolean;
+  emailVerified?: boolean;
+};
+const STORAGE_KEY = 'rihc_apply_form';
 
 // ====== Error Boundary (prevents blank page) ======
 class ApplyErrorBoundary extends React.Component<
@@ -81,6 +93,34 @@ function ApplyContent() {
   useEffect(() => {
     try { window.scrollTo({ top: 0 }); } catch {}
   }, []);
+
+  // ---- Load saved form on mount (so it won't look blank after redirects) ----
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
+      if (raw) {
+        const s = JSON.parse(raw) as SavedForm;
+        if (s && typeof s === 'object') {
+          if (s.plan) setPlan(s.plan);
+          if (s.checkin) setCheckin(s.checkin);
+          if (s.first) setFirst(s.first);
+          if (s.last) setLast(s.last);
+          if (s.email) setEmail(s.email);
+          if (s.phone) setPhone(s.phone);
+          if (typeof s.agree === 'boolean') setAgree(s.agree);
+          if (typeof s.emailVerified === 'boolean') setEmailVerified(s.emailVerified);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // ---- Persist form whenever it changes ----
+  useEffect(() => {
+    const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+  }, [plan, checkin, first, last, email, phone, agree, emailVerified]);
 
   // Dates
   const start = useMemo(() => {
@@ -224,8 +264,13 @@ function ApplyContent() {
   async function startIdVerification() {
     if (!first || !last || !email) return alert('Fill name and email first');
 
-    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    // Save form just before leaving, so it’s definitely persisted
+    try {
+      const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {}
 
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
     const r = await fetch('/api/identity/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -236,9 +281,7 @@ function ApplyContent() {
       return;
     }
     const j = await r.json();
-
     try { window.sessionStorage.setItem('rihc_vs', j.id); } catch {}
-
     window.location.href = j.url;
   }
 
