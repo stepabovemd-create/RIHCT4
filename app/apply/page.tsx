@@ -7,18 +7,9 @@ export const dynamic = 'force-dynamic';
 
 type Plan = 'weekly' | 'monthly';
 
-type SavedForm = {
-  plan: Plan;
-  checkin: string;
-  first: string;
-  last: string;
-  email: string;
-  phone: string;
-  agree: boolean;
-  emailVerified?: boolean; // we’ll persist this too
-};
-
-const STORAGE_KEY = 'rihc_apply_form';
+// 👉 Add your logo file at /public/relax-inn-logo.png or put a full URL here:
+const LOGO_URL = '/relax-inn-logo.png'; // e.g. 'https://your-domain.com/path/logo.png'
+const BRAND = '#135c92'; // Relax Inn blue
 
 /** ---------- Error Boundary so the page never goes blank ---------- */
 class ApplyErrorBoundary extends React.Component<
@@ -76,7 +67,6 @@ function ApplyContent() {
   const [idVerified, setIdVerified] = useState(false);
   const [idChecking, setIdChecking] = useState(false);
   const [idError, setIdError] = useState<string>('');
-  const [debugVs, setDebugVs] = useState<string>(''); // shows current VS id (or (none))
 
   // Phone verification (disabled for now)
   const smsRequired = false;
@@ -87,34 +77,6 @@ function ApplyContent() {
   useEffect(() => {
     try { window.scrollTo({ top: 0 }); } catch {}
   }, []);
-
-  /** Load saved form on mount */
-  useEffect(() => {
-    try {
-      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
-      if (raw) {
-        const s = JSON.parse(raw) as SavedForm;
-        if (s && typeof s === 'object') {
-          if (s.plan) setPlan(s.plan);
-          if (s.checkin) setCheckin(s.checkin);
-          if (s.first) setFirst(s.first);
-          if (s.last) setLast(s.last);
-          if (s.email) setEmail(s.email);
-          if (s.phone) setPhone(s.phone);
-          if (typeof s.agree === 'boolean') setAgree(s.agree);
-          if (typeof s.emailVerified === 'boolean') setEmailVerified(s.emailVerified);
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  /** Persist form whenever it changes */
-  useEffect(() => {
-    const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
-  }, [plan, checkin, first, last, email, phone, agree, emailVerified]);
 
   // Dates
   const start = useMemo(() => {
@@ -146,7 +108,6 @@ function ApplyContent() {
       typeof window !== 'undefined' ? window.sessionStorage.getItem('rihc_vs') : null;
     const vsId = vsFromUrl || vsFromStorage || '';
 
-    setDebugVs(vsId || '(none)');
     if (!vsId) return;
 
     let cancelled = false;
@@ -259,13 +220,6 @@ function ApplyContent() {
   async function startIdVerification() {
     if (!first || !last || !email) return alert('Fill name and email first');
 
-    // IMPORTANT: save form just before we leave, in case a field changed
-    try {
-      const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch {}
-
-    // IMPORTANT: send the exact origin we're on so Stripe returns to the same host
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
     const r = await fetch('/api/identity/start', {
@@ -279,20 +233,12 @@ function ApplyContent() {
     }
     const j = await r.json();
 
-    // Save the verification session ID locally; we'll use it after redirect
     try { window.sessionStorage.setItem('rihc_vs', j.id); } catch {}
 
-    // Stripe will return to `${baseUrl}/apply`
     window.location.href = j.url;
   }
 
-  const cardStyle: React.CSSProperties = {
-    border: '1px solid #e2e8f0',
-    borderRadius: 12,
-    padding: 16,
-    background: '#fff',
-  };
-
+  // --------- Styling helpers ----------
   const containerStyle: React.CSSProperties = {
     maxWidth: 1100,
     margin: '0 auto',
@@ -300,124 +246,216 @@ function ApplyContent() {
     fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
     color: '#0f172a',
   };
+  const card: React.CSSProperties = {
+    border: '1px solid #e2e8f0',
+    borderRadius: 14,
+    padding: 18,
+    background: '#fff',
+    boxShadow: '0 1px 0 rgba(15,23,42,0.03)',
+  };
+  const btnPrimary: React.CSSProperties = {
+    padding: '10px 14px',
+    borderRadius: 12,
+    border: 0,
+    background: BRAND,
+    color: '#fff',
+    cursor: 'pointer',
+  };
+  const btnOutline: React.CSSProperties = {
+    padding: '8px 12px',
+    borderRadius: 10,
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    cursor: 'pointer',
+  };
+  const label: React.CSSProperties = { fontSize: 12, fontWeight: 600 };
+  const input: React.CSSProperties = {
+    width: '100%',
+    border: '1px solid #cbd5e1',
+    borderRadius: 10,
+    padding: '10px 12px',
+  };
 
   return (
-    <main>
-      {/* Debug ribbon */}
-      <div style={{ background: '#eff6ff', borderBottom: '1px solid #bfdbfe' }}>
-        <div style={{ ...containerStyle, paddingTop: 10, paddingBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#1e40af' }}>
-            Debug — VS: <code>{debugVs || '(none)'}</code> · emailVerified:
-            <b> {String(emailVerified)}</b> · idVerified:<b> {String(idVerified)}</b> · canPay:
-            <b> {String(canPay)}</b>
-            <button
-              onClick={() => {
-                try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
-                try { window.localStorage.removeItem(STORAGE_KEY); } catch {}
-                location.reload();
+    <main style={{ background: '#f8fafc', minHeight: '100vh' }}>
+      {/* Header */}
+      <header
+        style={{
+          background: `linear-gradient(180deg, ${BRAND} 0%, #0f3f6c 100%)`,
+          color: '#fff',
+          padding: '18px 0',
+          borderBottom: '1px solid rgba(255,255,255,0.15)',
+        }}
+      >
+        <div style={{ ...containerStyle, paddingTop: 0, paddingBottom: 0, color: '#fff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                flexShrink: 0,
               }}
-              style={{ marginLeft: 12, padding: '4px 8px', borderRadius: 8, border: '1px solid #93c5fd', background: '#dbeafe' }}
-              title="Clear saved VS/form and reload"
+              aria-label="Relax Inn Logo"
             >
-              Reset
-            </button>
+              {/* If logo image exists, it will render; otherwise the fallback initials show. */}
+              <img
+                src={LOGO_URL}
+                alt="Relax Inn logo"
+                onError={(e) => { (e.currentTarget.style.display = 'none'); }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+              <span style={{ color: BRAND, fontWeight: 800 }}>RI</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>
+                Relax Inn of Hartford City
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.9, marginTop: 4 }}>
+                Extended-stay application & secure payment
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </header>
 
       <div style={containerStyle}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Application & Payment</h1>
-        <p style={{ marginTop: 6, color: '#475569' }}>
-          Complete verification steps, then proceed to payment.
-        </p>
+        {/* Page title bar */}
+        <div
+          style={{
+            marginTop: 18,
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: '#0f172a' }}>
+              Application & Payment
+            </h1>
+            <p style={{ marginTop: 6, color: '#475569', fontSize: 14 }}>
+              Verify your email and ID, then complete checkout. Your door code arrives by email.
+            </p>
+          </div>
+        </div>
 
         <div style={{ display: 'grid', gap: 24, gridTemplateColumns: '1fr', alignItems: 'start' }}>
           {/* Left column */}
           <div style={{ display: 'grid', gap: 16 }}>
             {/* Guest info */}
-            <div style={cardStyle}>
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Guest information</h2>
-              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
+            <section style={card}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                Guest information
+              </h2>
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 12,
+                  gridTemplateColumns: '1fr 1fr',
+                  marginTop: 12,
+                }}
+              >
                 <label>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>First name</div>
-                  <input value={first} onChange={(e) => setFirst(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
+                  <div style={label}>First name</div>
+                  <input value={first} onChange={(e) => setFirst(e.target.value)} style={input} />
                 </label>
                 <label>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>Last name</div>
-                  <input value={last} onChange={(e) => setLast(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
+                  <div style={label}>Last name</div>
+                  <input value={last} onChange={(e) => setLast(e.target.value)} style={input} />
                 </label>
                 <label>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>Email</div>
-                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
+                  <div style={label}>Email</div>
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={input} />
                 </label>
                 <label>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>Phone</div>
-                  <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
+                  <div style={label}>Phone</div>
+                  <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={input} />
                 </label>
                 <label>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>Plan</div>
-                  <select value={plan} onChange={(e) => setPlan(e.target.value as Plan)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}>
+                  <div style={label}>Plan</div>
+                  <select value={plan} onChange={(e) => setPlan(e.target.value as Plan)} style={input}>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
                   </select>
                 </label>
                 <label>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>Check-in date</div>
-                  <input type="date" value={checkin} onChange={(e) => setCheckin(e.target.value)} style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }} />
+                  <div style={label}>Check-in date</div>
+                  <input type="date" value={checkin} onChange={(e) => setCheckin(e.target.value)} style={input} />
                 </label>
               </div>
               <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 12 }}>
                 <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} style={{ marginTop: 4 }} />
                 <span style={{ fontSize: 13, color: '#334155' }}>
-                  I agree to the <a href="/terms" target="_blank" rel="noreferrer" style={{ color: '#1d4ed8' }}>Terms & Conditions</a>.
+                  I agree to the{' '}
+                  <a href="/terms" target="_blank" rel="noreferrer" style={{ color: BRAND, fontWeight: 600 }}>
+                    Terms & Conditions
+                  </a>.
                 </span>
               </label>
-            </div>
+            </section>
 
             {/* Email verification */}
-            <div style={cardStyle}>
+            <section style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Step 1 — Verify your email</h2>
-                <span style={{
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: emailVerified ? '#dbeafe' : '#e2e8f0',
-                  color: emailVerified ? '#1e40af' : '#475569',
-                  fontSize: 12
-                }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                  Step 1 — Verify your email
+                </h2>
+                <span
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: emailVerified ? '#dbeafe' : '#e2e8f0',
+                    color: emailVerified ? '#1e40af' : '#475569',
+                    fontSize: 12,
+                  }}
+                >
                   {emailVerified ? 'Verified' : 'Required'}
                 </span>
               </div>
               {!emailVerified && (
                 <div style={{ marginTop: 12, display: 'grid', gap: 12, gridTemplateColumns: 'auto 1fr auto' }}>
-                  <button onClick={sendOtp} disabled={!email || sendingOtp} style={{ padding: '8px 12px', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff' }}>
+                  <button onClick={sendOtp} disabled={!email || sendingOtp} style={btnOutline}>
                     {sendingOtp ? 'Sending…' : 'Send code'}
                   </button>
                   <input
                     placeholder="Enter 6-digit code"
                     value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value)}
-                    style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 10px' }}
+                    style={input}
                   />
-                  <button onClick={verifyOtp} disabled={!otpToken || !otpCode || verifyingOtp} style={{ padding: '8px 12px', borderRadius: 10, background: '#1d4ed8', color: '#fff', border: 0 }}>
+                  <button onClick={verifyOtp} disabled={!otpToken || !otpCode || verifyingOtp} style={btnPrimary}>
                     {verifyingOtp ? 'Verifying…' : 'Verify'}
                   </button>
                 </div>
               )}
-              {emailVerified && <p style={{ marginTop: 8, color: '#166534', fontSize: 13 }}>Email verified.</p>}
-            </div>
+              {emailVerified && (
+                <p style={{ marginTop: 8, color: '#166534', fontSize: 13 }}>Email verified.</p>
+              )}
+            </section>
 
             {/* ID verification */}
-            <div style={cardStyle}>
+            <section style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Step 2 — Verify your ID</h2>
-                <span style={{
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: idVerified ? '#dbeafe' : '#e2e8f0',
-                  color: idVerified ? '#1e40af' : '#475569',
-                  fontSize: 12
-                }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                  Step 2 — Verify your ID
+                </h2>
+                <span
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: idVerified ? '#dbeafe' : '#e2e8f0',
+                    color: idVerified ? '#1e40af' : '#475569',
+                    fontSize: 12,
+                  }}
+                >
                   {idVerified ? 'Verified' : 'Required'}
                 </span>
               </div>
@@ -427,7 +465,7 @@ function ApplyContent() {
                   <button
                     onClick={startIdVerification}
                     disabled={!first || !last || !email || idChecking}
-                    style={{ padding: '8px 12px', borderRadius: 10, background: '#1d4ed8', color: '#fff', border: 0 }}
+                    style={btnPrimary}
                   >
                     {idChecking ? 'Checking…' : 'Start ID verification'}
                   </button>
@@ -435,30 +473,38 @@ function ApplyContent() {
                     You’ll be redirected to a secure Stripe Identity page and returned here.
                   </p>
 
-                  {idChecking && <p style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>Confirming your verification…</p>}
-                  {!!idError && <p style={{ fontSize: 12, color: '#b91c1c', marginTop: 8 }}>Problem: {idError}</p>}
+                  {idChecking && (
+                    <p style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
+                      Confirming your verification…
+                    </p>
+                  )}
+                  {!!idError && (
+                    <p style={{ fontSize: 12, color: '#b91c1c', marginTop: 8 }}>
+                      Problem: {idError}
+                    </p>
+                  )}
                 </div>
               )}
 
-              {idVerified && <p style={{ marginTop: 8, color: '#166534', fontSize: 13 }}>ID verified.</p>}
-            </div>
+              {idVerified && (
+                <p style={{ marginTop: 8, color: '#166534', fontSize: 13 }}>ID verified.</p>
+              )}
+            </section>
 
             {/* Actions */}
-            <div style={cardStyle}>
+            <section style={card}>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <button
                   onClick={goToCheckout}
                   disabled={!canPay || loading}
                   style={{
-                    padding: '10px 14px',
-                    borderRadius: 12,
-                    border: 0,
-                    background: !canPay || loading ? '#e2e8f0' : '#1d4ed8',
+                    ...btnPrimary,
+                    background: !canPay || loading ? '#e2e8f0' : BRAND,
                     color: !canPay || loading ? '#475569' : '#fff',
-                    cursor: !canPay || loading ? 'not-allowed' : 'pointer'
+                    cursor: !canPay || loading ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  {loading ? 'Opening Checkout…' : 'Pay in Test Mode'}
+                  {loading ? 'Opening Checkout…' : 'Proceed to Payment (Test Mode)'}
                 </button>
               </div>
               {!canPay && (
@@ -466,23 +512,33 @@ function ApplyContent() {
                   Complete all fields, verify <b>email</b> and <b>ID</b>, and accept Terms to continue.
                 </p>
               )}
-            </div>
+              <ul style={{ marginTop: 10, paddingLeft: 18, color: '#475569', fontSize: 12 }}>
+                <li>Payments are processed securely by Stripe.</li>
+                <li>Once paid, you’ll receive your door code by email.</li>
+              </ul>
+            </section>
           </div>
 
-          {/* Right column (simple summary) */}
-          <aside style={{ ...cardStyle }}>
-            <p style={{ fontWeight: 600 }}>Stay summary</p>
+          {/* Right column (summary) */}
+          <aside style={{ ...card }}>
+            <p style={{ fontWeight: 700, margin: 0 }}>Stay summary</p>
             <dl style={{ marginTop: 8, fontSize: 14, color: '#334155' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <dt>Plan</dt><dd style={{ margin: 0, fontWeight: 600, textTransform: 'capitalize' }}>{plan}</dd>
+                <dt>Plan</dt>
+                <dd style={{ margin: 0, fontWeight: 600, textTransform: 'capitalize' }}>{plan}</dd>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                <dt>Check-in</dt><dd style={{ margin: 0, fontWeight: 600 }}>{fmt(start)}</dd>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                <dt>Check-in</dt>
+                <dd style={{ margin: 0, fontWeight: 600 }}>{fmt(start)}</dd>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                <dt>Check-out</dt><dd style={{ margin: 0, fontWeight: 600 }}>{fmt(end)}</dd>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                <dt>Check-out</dt>
+                <dd style={{ margin: 0, fontWeight: 600 }}>{fmt(end)}</dd>
               </div>
             </dl>
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0', fontSize: 12, color: '#64748b' }}>
+              Need help? Call the front desk.
+            </div>
           </aside>
         </div>
       </div>
