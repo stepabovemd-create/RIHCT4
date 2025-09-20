@@ -71,18 +71,7 @@ function ApplyContent() {
 
   const [loading, setLoading] = useState(false);
 
-  // Debug: confirm sections mounted
-  const [mountedFlags, setMountedFlags] = useState({
-    pageMounted: false,
-    infoMounted: false,
-    emailMounted: false,
-    idMounted: false,
-    actionsMounted: false,
-  });
-
   useEffect(() => {
-    setMountedFlags((f) => ({ ...f, pageMounted: true }));
-    // scroll to top on return from Stripe to ensure you see the header
     try { window.scrollTo({ top: 0 }); } catch {}
   }, []);
 
@@ -267,16 +256,13 @@ function ApplyContent() {
 
   return (
     <main>
-      {/* Debug ribbon: shows which VS id (if any) we're using + states */}
+      {/* Debug ribbon: shows which VS id (if any) we're using */}
       <div style={{ background: '#eff6ff', borderBottom: '1px solid #bfdbfe' }}>
         <div style={{ ...containerStyle, paddingTop: 10, paddingBottom: 10 }}>
           <div style={{ fontSize: 12, color: '#1e40af' }}>
             Debug — VS: <code>{debugVs || '(none)'}</code> · emailVerified:
             <b> {String(emailVerified)}</b> · idVerified:<b> {String(idVerified)}</b> · canPay:
             <b> {String(canPay)}</b>
-            <span style={{ marginLeft: 10, opacity: 0.7 }}>
-              sections: {Object.entries(mountedFlags).map(([k, v]) => `${k}:${v ? '✓' : '—'}`).join(' · ')}
-            </span>
             <button
               onClick={() => {
                 try { window.sessionStorage.removeItem('rihc_vs'); } catch {}
@@ -302,7 +288,6 @@ function ApplyContent() {
           <div style={{ display: 'grid', gap: 16 }}>
             {/* Guest info */}
             <div style={cardStyle}>
-              {setMountedFlags && !mountedFlags.infoMounted && setTimeout(() => setMountedFlags((f) => ({ ...f, infoMounted: true })), 0)}
               <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Guest information</h2>
               <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
                 <label>
@@ -343,7 +328,6 @@ function ApplyContent() {
 
             {/* Email verification */}
             <div style={cardStyle}>
-              {setMountedFlags && !mountedFlags.emailMounted && setTimeout(() => setMountedFlags((f) => ({ ...f, emailMounted: true })), 0)}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Step 1 — Verify your email</h2>
                 <span style={{
@@ -377,7 +361,6 @@ function ApplyContent() {
 
             {/* ID verification */}
             <div style={cardStyle}>
-              {setMountedFlags && !mountedFlags.idMounted && setTimeout(() => setMountedFlags((f) => ({ ...f, idMounted: true })), 0)}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Step 2 — Verify your ID</h2>
                 <span style={{
@@ -414,7 +397,6 @@ function ApplyContent() {
 
             {/* Actions */}
             <div style={cardStyle}>
-              {setMountedFlags && !mountedFlags.actionsMounted && setTimeout(() => setMountedFlags((f) => ({ ...f, actionsMounted: true })), 0)}
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <button
                   onClick={goToCheckout}
