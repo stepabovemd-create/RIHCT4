@@ -1,3 +1,4 @@
+// app/apply/page.tsx
 'use client';
 
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
@@ -94,7 +95,7 @@ function ApplyContent() {
     try { window.scrollTo({ top: 0 }); } catch {}
   }, []);
 
-  // ---- Load saved form on mount (so it won't look blank after redirects) ----
+  // ---- Load saved form on mount ----
   useEffect(() => {
     try {
       const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
@@ -111,9 +112,7 @@ function ApplyContent() {
           if (typeof s.emailVerified === 'boolean') setEmailVerified(s.emailVerified);
         }
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
   // ---- Persist form whenever it changes ----
@@ -197,6 +196,9 @@ function ApplyContent() {
   const formComplete = Boolean(first && last && email && phone && agree);
   const canPay = formComplete && emailVerified && idVerified && phoneVerified;
 
+  // 👉 NEW: read ?force=1 to force the move-in fee once
+  const forceOnce = params.get('force') === '1';
+
   async function goToCheckout() {
     if (!canPay) return;
     try {
@@ -204,7 +206,11 @@ function ApplyContent() {
       const r = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ plan, first, last, email, phone }),
+        body: JSON.stringify({
+          plan, first, last, email, phone,
+          // TEMP: force the $100 fee if URL has ?force=1
+          forceMoveIn: forceOnce,
+        }),
       });
       if (!r.ok) {
         alert(`Checkout error: ${await r.text()}`);
@@ -264,7 +270,7 @@ function ApplyContent() {
   async function startIdVerification() {
     if (!first || !last || !email) return alert('Fill name and email first');
 
-    // Save form just before leaving, so it’s definitely persisted
+    // Save form just before leaving
     try {
       const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -380,6 +386,11 @@ function ApplyContent() {
           <p style={{ marginTop: 6, color: '#475569', fontSize: 14 }}>
             Verify your email and ID, then complete checkout. Your door code arrives by email.
           </p>
+          {forceOnce && (
+            <p style={{ marginTop: 6, color: '#1e40af', fontSize: 12 }}>
+              (Test mode: Move-in fee will be <b>forced</b> on this checkout.)
+            </p>
+          )}
         </div>
 
         <div style={{ display: 'grid', gap: 24, gridTemplateColumns: '1fr', alignItems: 'start' }}>
@@ -589,7 +600,6 @@ function ApplyContent() {
             <div style={{ fontWeight: 700, color: '#0f172a' }}>Relax Inn of Hartford City</div>
           </div>
           <div style={{ fontSize: 13, color: '#475569' }}>
-            {/* TODO: replace with your real info */}
             24/7 Front Desk • <a href="tel:0000000000" style={{ color: BRAND, textDecoration: 'none', fontWeight: 600 }}>({`xxx`}) xxx-xxxx</a>
           </div>
         </div>
