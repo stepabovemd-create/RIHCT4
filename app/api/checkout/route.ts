@@ -1,7 +1,7 @@
 // app/api/checkout/route.ts
 import Stripe from "stripe";
 import { NextResponse } from "next/server";
-import { getPriceIds } from "@/lib/prices";
+import { getPriceIds } from "../../../lib/prices";
 
 export const runtime = "nodejs"; // ensure standard process.env behavior
 
