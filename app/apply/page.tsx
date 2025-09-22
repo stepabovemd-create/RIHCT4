@@ -68,6 +68,18 @@ class ApplyErrorBoundary extends React.Component<
 function ApplyContent() {
   const params = useSearchParams();
 
+  // --- DEV BYPASS (temporary) ---
+  // Visit /apply?dev=1 to skip Email + ID verification for testing.
+  // Remove this block after you're done testing.
+  const DEV = params.get('dev') === '1';
+  useEffect(() => {
+    if (DEV) {
+      setEmailVerified(true);
+      setIdVerified(true);
+    }
+  }, [DEV]);
+  // --- END DEV BYPASS ---
+
   const [plan, setPlan] = useState<Plan>('weekly');
   const [checkin, setCheckin] = useState('');
   const [first, setFirst] = useState('');
