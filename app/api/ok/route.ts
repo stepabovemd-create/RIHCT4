@@ -6,6 +6,8 @@ export async function GET() {
     hasWeekly: !!process.env.STRIPE_WEEKLY_PRICE_ID,
     hasMonthly: !!process.env.STRIPE_MONTHLY_PRICE_ID,
     hasMoveIn: !!process.env.STRIPE_MOVEIN_PRICE_ID,
+    weeklyPrefix: (process.env.STRIPE_WEEKLY_PRICE_ID || '').slice(0, 10),
+    monthlyPrefix: (process.env.STRIPE_MONTHLY_PRICE_ID || '').slice(0, 10),
     moveInPrefix: (process.env.STRIPE_MOVEIN_PRICE_ID || '').slice(0, 10),
     env: process.env.VERCEL_ENV || 'unknown',
   });
