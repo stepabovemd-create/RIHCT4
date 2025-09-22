@@ -9,16 +9,15 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2024-06-20",
 });
 
-/**
- * One-time checkout ONLY (no subscriptions).
- * - First rent (weekly OR monthly) charged as a one-time item using the amount from your recurring price
- * - Optional Move-in fee (forced via flag) as a one-time item
- */
+// Use a stable tag for this property (optional, kept for future use)
+const PROPERTY_CODE = "rihc4";
+
 export async function POST(req: Request) {
   try {
-    const { plan, forceMoveIn } = (await req.json()) as {
+    const { plan, forceMoveIn, email } = (await req.json()) as {
       plan: "weekly" | "monthly";
       forceMoveIn?: boolean;
+      email?: string;
     };
 
     // Build absolute URLs
@@ -28,9 +27,8 @@ export async function POST(req: Request) {
         ? process.env.NEXT_PUBLIC_SITE_URL
         : null) || reqUrl.origin;
 
+    // Load prices
     const { weekly, monthly, movein } = getPriceIds();
-
-    // Get the recurring price just to copy its amount/currency into a one-time item
     const recurringPriceId = plan === "weekly" ? weekly : monthly;
     if (!recurringPriceId) {
       return NextResponse.json(
@@ -39,6 +37,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Retrieve recurring price to copy amount/currency (one-time line)
     const recurringPrice = await stripe.prices.retrieve(recurringPriceId);
     if (!recurringPrice.unit_amount || !recurringPrice.currency) {
       return NextResponse.json(
@@ -47,9 +46,34 @@ export async function POST(req: Request) {
       );
     }
 
+    // -------- NEW / SIMPLE MOVE-IN RULE --------
+    // If forceMoveIn => add fee.
+    // Else, add fee only if NO Stripe customer exists for this email.
+    let shouldAddMoveIn = Boolean(forceMoveIn);
+
+    if (!shouldAddMoveIn) {
+      if (!email) {
+        // If no email provided, we can't decide safely — default to NO fee.
+        shouldAddMoveIn = false;
+      } else {
+        try {
+          const customers = await stripe.customers.search({
+            query: `email:'${email.replace(/'/g, "\\'")}'`,
+            limit: 1,
+          });
+          // No customer yet => brand new guest => add fee
+          shouldAddMoveIn = customers.data.length === 0;
+        } catch {
+          // If search fails for any reason, fail safe: don't add fee
+          shouldAddMoveIn = false;
+        }
+      }
+    }
+    // -------------------------------------------
+
+    // Build Checkout line items (strictly one-time)
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
       {
-        // First rent as a one-time line using the same amount/currency as the recurring price
         price_data: {
           currency: recurringPrice.currency,
           product_data: {
@@ -61,11 +85,9 @@ export async function POST(req: Request) {
       },
     ];
 
-    // --- MOVE-IN FEE HANDLING ---
-    if (forceMoveIn) {
+    if (shouldAddMoveIn) {
       if (movein) {
-        // Try to use your configured move-in price, but convert it into a one-time ad-hoc line
-        // (This avoids any issues if your move-in price was accidentally set as recurring in Stripe.)
+        // Use configured move-in price's amount as a one-time ad-hoc line
         const mi = await stripe.prices.retrieve(movein);
         const miAmount = mi.unit_amount;
         const miCurrency = mi.currency;
@@ -79,40 +101,48 @@ export async function POST(req: Request) {
             quantity: 1,
           });
         } else {
-          // Fallback hard-coded fee if that price is misconfigured
+          // Fallback hard-coded amount if misconfigured (change as needed)
           line_items.push({
             price_data: {
               currency: recurringPrice.currency,
               product_data: { name: "Move-in Fee" },
-              unit_amount: 3500, // $35.00 fallback; change if you want
+              unit_amount: 3500, // $35.00
             },
             quantity: 1,
           });
         }
       } else {
-        // No STRIPE_PRICE_MOVEIN set; use a sensible default
+        // No STRIPE_PRICE_MOVEIN set; use fallback
         line_items.push({
           price_data: {
             currency: recurringPrice.currency,
             product_data: { name: "Move-in Fee" },
-            unit_amount: 3500, // $35.00 fallback; change if you want
+            unit_amount: 3500, // $35.00
           },
           quantity: 1,
         });
       }
     }
-    // --- END MOVE-IN FEE HANDLING ---
 
     const session = await stripe.checkout.sessions.create({
-      mode: "payment",           // strictly one-time
+      mode: "payment", // strictly one-time
       line_items,
-      // NOTE: we are NOT saving the card (no payment_intent_data.setup_future_usage)
+      // Tag the resulting PaymentIntent for future insights (optional)
+      payment_intent_data: {
+        metadata: {
+          property: PROPERTY_CODE,
+          plan,
+          movein_added: shouldAddMoveIn ? "1" : "0",
+        },
+      },
+      customer_email: email || undefined,
       success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${site}/apply`,
       allow_promotion_codes: true,
       metadata: {
+        property: PROPERTY_CODE,
         plan,
-        movein_added: forceMoveIn ? "1" : "0",
+        movein_added: shouldAddMoveIn ? "1" : "0",
       },
     });
 
