@@ -16,6 +16,13 @@ export async function POST(req: Request) {
       forceMoveIn?: boolean;
     };
 
+    // Build an absolute site URL (env first, then fall back to request origin)
+    const reqUrl = new URL(req.url);
+    const site =
+      (process.env.NEXT_PUBLIC_SITE_URL?.startsWith("http")
+        ? process.env.NEXT_PUBLIC_SITE_URL
+        : null) || reqUrl.origin;
+
     const { weekly, monthly, movein, missing } = getPriceIds();
     if (missing.length > 0) {
       return NextResponse.json(
@@ -34,6 +41,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
 
+    // NOTE: Stripe Checkout in "subscription" mode expects recurring prices.
+    // If your move-in price is a one-time product, we’ll add it as a second
+    // line item only if Stripe allows it for your price configuration.
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
       { price: basePrice, quantity: 1 },
     ];
@@ -46,8 +56,8 @@ export async function POST(req: Request) {
       mode: "subscription",
       customer_creation: "if_required",
       line_items,
-      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/apply`,
+      success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${site}/apply`,
       allow_promotion_codes: true,
     });
 
