@@ -1,34 +1,42 @@
-// app/api/portal/route.ts
-export const runtime = 'nodejs';
+import { NextResponse } from "next/server";
+import Stripe from "stripe";
 
-import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
+export const runtime = "nodejs";
 
-export async function POST(req: NextRequest) {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-06-20",
+});
+
+/**
+ * POST /api/portal
+ * Body: { email: string }
+ * Returns: { url }
+ */
+export async function POST(req: Request) {
   try {
-    const { sessionId, email } = await req.json();
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, { apiVersion: '2024-06-20' });
+    const { email } = (await req.json()) as { email?: string };
+    if (!email) return NextResponse.json({ error: "Email required" }, { status: 400 });
 
-    let customerId: string | undefined;
+    // 1) Find or create customer by email
+    const found = await stripe.customers.search({ query: `email:'${email.replace(/'/g, "\\'")}'`, limit: 1 });
+    const customer = found.data[0] || await stripe.customers.create({ email });
 
-    if (sessionId) {
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
-      const c = session.customer;
-      customerId = typeof c === 'string' ? c : c?.id;
-    } else if (email) {
-      const found = await stripe.customers.search({ query: `email:'${email}'` });
-      customerId = found.data[0]?.id;
-    }
+    // 2) Build return URL
+    const reqUrl = new URL(req.url);
+    const site =
+      (process.env.NEXT_PUBLIC_SITE_URL?.startsWith("http")
+        ? process.env.NEXT_PUBLIC_SITE_URL
+        : null) || reqUrl.origin;
 
-    if (!customerId) return new NextResponse('No customer found', { status: 404 });
-
-    const portal = await stripe.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: `${process.env.NEXT_PUBLIC_BASE_URL}/apply`,
+    // 3) Create portal session
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customer.id,
+      return_url: `${site}/portal/return`,
+      // Optional: Limit features (in Stripe Dashboard > Billing > Customer Portal)
     });
 
-    return NextResponse.json({ url: portal.url });
+    return NextResponse.json({ url: session.url });
   } catch (e: any) {
-    return new NextResponse(`Portal error: ${e?.message || 'unknown'}`, { status: 500 });
+    return NextResponse.json({ error: e?.message ?? "Portal error" }, { status: 500 });
   }
 }
