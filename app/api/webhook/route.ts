@@ -1,160 +1,137 @@
 // app/api/webhook/route.ts
-// Next.js App Router + Stripe webhook + Postmark email
-// Handles ONLY `invoice.payment_succeeded`
+import Stripe from "stripe";
+import { NextResponse } from "next/server";
+import { getPriceIds } from "../../../lib/prices";
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
-import { NextRequest, NextResponse } from 'next/server';
-import { headers } from 'next/headers';
-import Stripe from 'stripe';
+// IMPORTANT: add STRIPE_WEBHOOK_SECRET in Vercel for Production/Preview
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-06-20",
+});
 
-// --- helpers ---
-function extractEmail(addr?: string | null) {
-  if (!addr) return '';
-  const m = addr.match(/<([^>]+)>/);
-  return (m ? m[1] : addr).trim();
-}
+export async function POST(req: Request) {
+  const sig = req.headers.get("stripe-signature");
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-async function sendEmailViaPostmark({
-  fromRaw,
-  toRaw,
-  subject,
-  text,
-  token,
-}: {
-  fromRaw: string;
-  toRaw?: string;
-  subject: string;
-  text: string;
-  token?: string;
-}) {
-  if (!token) {
-    console.log('📧 Skipped email: POSTMARK_TOKEN missing');
-    return;
-  }
-  const from = extractEmail(fromRaw);
-  const to = extractEmail(toRaw || '');
-  if (!from || !to) {
-    console.log('📧 Skipped email: missing From/To', { from, to });
-    return;
+  if (!sig || !webhookSecret) {
+    return NextResponse.json({ error: "Missing webhook signature/secret" }, { status: 400 });
   }
 
-  console.log('📧 From:', fromRaw, '| To:', to);
-
-  const res = await fetch('https://api.postmarkapp.com/email', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Postmark-Server-Token': token,
-    },
-    body: JSON.stringify({
-      From: fromRaw, // supports "Relax Inn <no-reply@yourdomain>"
-      To: to,
-      Subject: subject,
-      TextBody: text,
-      MessageStream: 'outbound',
-      ReplyTo: from,
-    }),
-  });
-
-  const body = await res.text();
-  console.log('📧 Postmark response:', res.status, body);
-}
-
-// --- GET: quick status ---
-export async function GET() {
-  return NextResponse.json({
-    ok: true,
-    route: '/api/webhook',
-    hasWebhookSecret: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
-    hasStripeSecret: Boolean(process.env.STRIPE_SECRET_KEY),
-    hasPostmark: Boolean(process.env.POSTMARK_TOKEN),
-    senderEmailSet: Boolean(process.env.SENDER_EMAIL),
-  });
-}
-
-// --- POST: Stripe webhook ---
-export async function POST(req: NextRequest) {
-  const sig = headers().get('stripe-signature');
-  const rawBody = Buffer.from(await req.arrayBuffer());
-
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-    apiVersion: '2024-06-20',
-  });
+  const rawBody = await req.text();
+  let event: Stripe.Event;
 
   try {
-    const event = stripe.webhooks.constructEvent(
-      rawBody,
-      sig as string,
-      process.env.STRIPE_WEBHOOK_SECRET as string
-    );
-    console.log('✅ Stripe event:', event.type);
+    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
+  } catch (err: any) {
+    return NextResponse.json({ error: `Webhook signature verification failed: ${err.message}` }, { status: 400 });
+  }
 
-    if (event.type === 'invoice.payment_succeeded') {
-      const invoice = event.data.object as Stripe.Invoice;
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.mode !== "payment") break;
 
-      // Get customer email
-      let email = invoice.customer_email || undefined;
-      const customerId =
-        typeof invoice.customer === 'string'
-          ? invoice.customer
-          : (invoice.customer as Stripe.Customer | null)?.id || undefined;
-      if (!email && customerId) {
-        try {
-          const customer = await stripe.customers.retrieve(customerId);
-          if (typeof customer === 'object' && customer && 'email' in customer) {
-            email = (customer as Stripe.Customer).email || undefined;
-          }
-        } catch {}
+        // From checkout metadata
+        const plan = (session.metadata?.plan as "weekly" | "monthly") || "weekly";
+        const hadMoveIn = session.metadata?.had_movein === "1";
+
+        // Load the PaymentIntent to get the payment method + customer
+        if (!session.payment_intent) break;
+        const pi = await stripe.paymentIntents.retrieve(session.payment_intent as string, {
+          expand: ["payment_method", "customer"],
+        });
+
+        const customerId =
+          (typeof session.customer === "string" && session.customer) ||
+          (typeof pi.customer === "string" && pi.customer) ||
+          null;
+
+        if (!customerId) {
+          // Create or attach a customer if needed. We prefer using the one Checkout created.
+          const created = await stripe.customers.create({
+            email: session.customer_details?.email || undefined,
+            name: session.customer_details?.name || undefined,
+          });
+          // (We won't bail, but it's unlikely we get here.)
+          // Use created.id as fallback.
+        }
+
+        const pmId =
+          (typeof pi.payment_method === "string" && pi.payment_method) ||
+          (pi.payment_method && (pi.payment_method as any).id) ||
+          null;
+
+        // Determine next anchor (end of first period)
+        const now = Math.floor(Date.now() / 1000);
+        const seconds = plan === "weekly" ? 7 * 24 * 60 * 60 : 30 * 24 * 60 * 60;
+        const anchor = now + seconds;
+
+        // Choose recurring price
+        const { weekly, monthly } = getPriceIds();
+        const recurringPriceId = plan === "weekly" ? weekly : monthly;
+        if (!recurringPriceId) {
+          throw new Error("Missing recurring price env var on webhook.");
+        }
+
+        // Create / update customer default payment method if we have one
+        const customerToUse = (customerId as string) || (session.customer as string);
+        if (customerToUse && pmId) {
+          await stripe.customers.update(customerToUse, {
+            invoice_settings: { default_payment_method: pmId },
+          });
+        }
+
+        // Create the subscription that starts charging at the next period boundary
+        await stripe.subscriptions.create({
+          customer: (customerId as string) || (session.customer as string),
+          items: [{ price: recurringPriceId }],
+          billing_cycle_anchor: anchor,
+          proration_behavior: "none",
+          collection_method: "charge_automatically",
+          payment_settings: {
+            save_default_payment_method: "on_subscription",
+          },
+          // If you want to email upcoming invoices, enable "Send upcoming invoice emails"
+          // in Stripe Dashboard. For custom 2-day reminders, see the invoice.upcoming case below.
+          metadata: {
+            source: "rihct4-webhook",
+            plan,
+            had_movein: hadMoveIn ? "1" : "0",
+          },
+        });
+
+        break;
       }
 
-      // Get name from subscription metadata
-      let first = '';
-      let last = '';
-      try {
-        const subId = typeof invoice.subscription === 'string' ? invoice.subscription : null;
-        if (subId) {
-          const sub = await stripe.subscriptions.retrieve(subId);
-          first = (sub.metadata?.first as string) || '';
-          last  = (sub.metadata?.last as string)  || '';
-        }
-      } catch {}
+      // Optional: We'll wire a hook for your "2-days-before" reminder window.
+      case "invoice.upcoming": {
+        const inv = event.data.object as Stripe.Invoice;
+        // This event fires ~1 hour before the invoice is finalized for automatic collection,
+        // which is usually ~1 day before depending on the schedule. If you need *exactly*
+        // 2 days before, you can schedule a reminder by comparing inv.next_payment_attempt
+        // (epoch seconds) to Date.now() and only email if ~48h out.
+        // TODO: Call Postmark here to send a friendly reminder email.
+        // Example (pseudo):
+        // await sendReminderEmail(inv.customer_email, { ...details });
+        break;
+      }
 
-      // Weekly vs monthly
-      const line = invoice.lines?.data?.[0];
-      const interval = line?.price?.recurring?.interval; // 'week' | 'month'
-
-      // Demo code + validity window
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      const start = new Date(); start.setHours(15, 0, 0, 0); // 3pm
-      const end = new Date(start);
-      end.setDate(end.getDate() + (interval === 'month' ? 30 : 7));
-      end.setHours(11, 0, 0, 0); // 11am
-
-      const greeting = [first, last].filter(Boolean).join(' ');
-      const text = [
-        (greeting ? `Hi ${greeting}` : 'Hi'),
-        '',
-        `Thanks for your ${interval === 'month' ? 'monthly' : 'weekly'} payment at Relax Inn.`,
-        `Your door code is: ${code}`,
-        `Valid ${start.toLocaleString()} → ${end.toLocaleString()}.`,
-        '',
-        `If you need help, call the front desk.`,
-        `— Relax Inn Hartford City`,
-      ].join('\n');
-
-      await sendEmailViaPostmark({
-        fromRaw: process.env.SENDER_EMAIL || '',
-        toRaw: email, // send to guest email (no fallback)
-        subject: 'Your Relax Inn door code',
-        text,
-        token: process.env.POSTMARK_TOKEN,
-      });
+      default:
+        // no-op
+        break;
     }
 
     return NextResponse.json({ received: true });
   } catch (err: any) {
-    console.error('❌ Webhook verify error:', err?.message);
-    return new NextResponse(`Webhook Error: ${err?.message}`, { status: 400 });
+    return NextResponse.json({ error: err.message || "Webhook handler error" }, { status: 500 });
   }
 }
+
+// Tell Next.js to give us the raw body
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
