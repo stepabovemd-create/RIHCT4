@@ -1,4 +1,3 @@
-// app/apply/page.tsx
 'use client';
 
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
@@ -27,8 +26,9 @@ type SavedForm = {
   emailVerified?: boolean;
 };
 const STORAGE_KEY = 'rihc_apply_form';
+const FORCE_KEY = 'rihc_force_once';
 
-// ====== Error Boundary (prevents blank page) ======
+// ====== Error Boundary ======
 class ApplyErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; msg?: string }
@@ -52,7 +52,7 @@ class ApplyErrorBoundary extends React.Component<
             Error: {this.state.msg}
           </p>
           <p style={{ marginTop: 12 }}>
-            Refresh the page and try again, or click “Start ID verification” once more.
+            Refresh and try again, or click “Start ID verification” once more.
           </p>
         </main>
       );
@@ -61,7 +61,6 @@ class ApplyErrorBoundary extends React.Component<
   }
 }
 
-// ====== Page ======
 function ApplyContent() {
   const params = useSearchParams();
 
@@ -85,17 +84,28 @@ function ApplyContent() {
   const [idChecking, setIdChecking] = useState(false);
   const [idError, setIdError] = useState<string>('');
 
-  // Phone verification (reserved for later)
+  // Phone verification (future)
   const smsRequired = false;
   const phoneVerified = true;
 
   const [loading, setLoading] = useState(false);
 
+  // NEW: persist `force=1` once across redirects
+  const [forceOnce, setForceOnce] = useState(false);
+  useEffect(() => {
+    const fromParam = params.get('force') === '1';
+    try {
+      if (fromParam) window.localStorage.setItem(FORCE_KEY, '1');
+      const fromStorage = window.localStorage.getItem(FORCE_KEY) === '1';
+      setForceOnce(fromParam || fromStorage);
+    } catch {}
+  }, [params]);
+
   useEffect(() => {
     try { window.scrollTo({ top: 0 }); } catch {}
   }, []);
 
-  // ---- Load saved form on mount ----
+  // Load saved form
   useEffect(() => {
     try {
       const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
@@ -115,7 +125,7 @@ function ApplyContent() {
     } catch {}
   }, []);
 
-  // ---- Persist form whenever it changes ----
+  // Save form
   useEffect(() => {
     const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
@@ -144,7 +154,7 @@ function ApplyContent() {
       minute: '2-digit',
     });
 
-  // On return from Stripe Identity, poll status using either ?vs=... or sessionStorage('rihc_vs')
+  // After Stripe Identity returns, poll status (?vs=... or sessionStorage)
   useEffect(() => {
     const vsFromUrl = params.get('vs');
     const vsFromStorage =
@@ -196,9 +206,6 @@ function ApplyContent() {
   const formComplete = Boolean(first && last && email && phone && agree);
   const canPay = formComplete && emailVerified && idVerified && phoneVerified;
 
-  // 👉 NEW: read ?force=1 to force the move-in fee once
-  const forceOnce = params.get('force') === '1';
-
   async function goToCheckout() {
     if (!canPay) return;
     try {
@@ -208,8 +215,7 @@ function ApplyContent() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           plan, first, last, email, phone,
-          // TEMP: force the $100 fee if URL has ?force=1
-          forceMoveIn: forceOnce,
+          forceMoveIn: forceOnce, // <- keep forcing if localStorage said so
         }),
       });
       if (!r.ok) {
@@ -221,6 +227,10 @@ function ApplyContent() {
         alert('Checkout error: No URL returned');
         return;
       }
+
+      // we used it — clear the one-time force
+      try { window.localStorage.removeItem(FORCE_KEY); } catch {}
+
       window.location.href = url;
     } finally {
       setLoading(false);
@@ -270,10 +280,11 @@ function ApplyContent() {
   async function startIdVerification() {
     if (!first || !last || !email) return alert('Fill name and email first');
 
-    // Save form just before leaving
+    // Save form & force flag just before leaving
     try {
       const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      if (forceOnce) window.localStorage.setItem(FORCE_KEY, '1');
     } catch {}
 
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
