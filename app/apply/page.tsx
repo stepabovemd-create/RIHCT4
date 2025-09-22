@@ -14,7 +14,7 @@ const ACCENT_BG = '#f8fafc';
 const CARD_BORDER = '#e2e8f0';
 const LOGO_URL = '/relax-inn-logo.png';
 
-// ====== Persist form between redirects ======
+// ====== Persist form between redirects (per-tab only) ======
 type SavedForm = {
   plan: Plan;
   checkin: string;
@@ -27,6 +27,10 @@ type SavedForm = {
 };
 const STORAGE_KEY = 'rihc_apply_form';
 const FORCE_KEY = 'rihc_force_once';
+
+// Use sessionStorage so data clears when the tab closes
+const getSESSION = () =>
+  (typeof window !== 'undefined' ? window.sessionStorage : undefined);
 
 // ====== Error Boundary ======
 class ApplyErrorBoundary extends React.Component<
@@ -90,7 +94,7 @@ function ApplyContent() {
 
   const [loading, setLoading] = useState(false);
 
-  // NEW: persist `force=1` once across redirects
+  // NEW: persist `force=1` once across redirects (leave in localStorage on purpose)
   const [forceOnce, setForceOnce] = useState(false);
   useEffect(() => {
     const fromParam = params.get('force') === '1';
@@ -105,10 +109,11 @@ function ApplyContent() {
     try { window.scrollTo({ top: 0 }); } catch {}
   }, []);
 
-  // Load saved form
+  // Load saved form (per-tab only)
   useEffect(() => {
     try {
-      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
+      const SESSION = getSESSION();
+      const raw = SESSION?.getItem(STORAGE_KEY) || null;
       if (raw) {
         const s = JSON.parse(raw) as SavedForm;
         if (s && typeof s === 'object') {
@@ -123,12 +128,16 @@ function ApplyContent() {
         }
       }
     } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save form
+  // Save form (per-tab only)
   useEffect(() => {
     const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+    try {
+      const SESSION = getSESSION();
+      SESSION?.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {}
   }, [plan, checkin, first, last, email, phone, agree, emailVerified]);
 
   // Dates
@@ -219,7 +228,8 @@ function ApplyContent() {
         }),
       });
       if (!r.ok) {
-        alert(`Checkout error: ${await r.text()}`);
+        const text = await r.text();
+        alert(`Checkout error: ${text}`);
         return;
       }
       const { url } = await r.json();
@@ -280,10 +290,11 @@ function ApplyContent() {
   async function startIdVerification() {
     if (!first || !last || !email) return alert('Fill name and email first');
 
-    // Save form & force flag just before leaving
+    // Save form & force flag just before leaving (per-tab for form; keep force in localStorage)
     try {
+      const SESSION = getSESSION();
       const data: SavedForm = { plan, checkin, first, last, email, phone, agree, emailVerified };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      SESSION?.setItem(STORAGE_KEY, JSON.stringify(data));
       if (forceOnce) window.localStorage.setItem(FORCE_KEY, '1');
     } catch {}
 
@@ -562,6 +573,22 @@ function ApplyContent() {
                   }}
                 >
                   {loading ? 'Opening Checkout…' : 'Proceed to Payment (Test Mode)'}
+                </button>
+
+                {/* Reset form button */}
+                <button
+                  onClick={() => {
+                    try {
+                      const SESSION = getSESSION();
+                      SESSION?.removeItem(STORAGE_KEY);
+                      window.localStorage.removeItem(FORCE_KEY);
+                      window.sessionStorage.removeItem('rihc_vs');
+                    } catch {}
+                    location.reload();
+                  }}
+                  style={btnOutline}
+                >
+                  Reset form
                 </button>
               </div>
               {!canPay && (
